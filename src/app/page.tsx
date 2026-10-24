@@ -1,69 +1,222 @@
-import Image from "next/image";
+'use client';
 
-export default function Home() {
+// src/app/page.tsx
+import React, { useEffect, useState } from 'react';
+import Link from 'next/link';
+import { useQuery } from '@tanstack/react-query';
+import {
+  Wallet,
+  Path,
+  SteeringWheel,
+  IdentificationCard,
+  ArrowClockwise,
+  Plus,
+  PaperPlaneTilt,
+  TrendUp,
+  TrendDown,
+  Broadcast,
+  ShieldCheck,
+  Bank,
+  ArrowRight,
+  MapPin,
+  NavigationArrow,
+  type Icon as PhosphorIcon,
+} from '@phosphor-icons/react';
+import { Card, Modal, Label, Select, ListBox } from '@heroui/react';
+import { AppButton } from '@/components/ui/app-button';
+import { AppInput } from '@/components/ui/app-input';
+import { DashboardCard, StatDashboardCard } from '@/components/ui/dashboard-card';
+import { api } from '@/lib/api';
+import { DashboardResponse } from '@/types/admin';
+import { formatKoboToNaira, formatNumber } from '@/lib/utils';
+import { useAuthStore } from '@/stores/auth-store';
+import { DispatchPerformanceChart } from '@/components/dashboard/dispatch-chart';
+
+function greeting() {
+  const hour = new Date().getHours();
+  if (hour < 12) return 'Good morning';
+  if (hour < 17) return 'Good afternoon';
+  return 'Good evening';
+}
+
+function Delta({ value }: { value: number }) {
+  const positive = value >= 0;
+  const DeltaIcon = positive ? TrendUp : TrendDown;
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert h-5 w-[100px]"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the{" "}
-            <code className="rounded bg-black/[.06] px-1.5 py-0.5 font-mono text-[0.9em] dark:bg-white/[.08]">
-              page.tsx
-            </code>{" "}
-            file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
-        </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert h-[14px] w-4"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={14}
+    <span
+      className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium ${
+        positive ? 'bg-success-soft text-success-soft-foreground' : 'bg-danger-soft text-danger-soft-foreground'
+      }`}
+    >
+      <DeltaIcon size={12} weight="bold" />
+      {positive ? '+' : ''}
+      {value}%
+    </span>
+  );
+}
+
+const QUICK_LINKS: { label: string; description: string; href: string; icon: PhosphorIcon }[] = [
+  { label: 'Live Watch', description: 'Real-time map of trips & drivers', href: '/live-watch', icon: Broadcast },
+  { label: 'Driver verification', description: 'Review pending KYC submissions', href: '/drivers/review-queue', icon: IdentificationCard },
+  { label: 'Lagos Road Tax', description: 'Statutory road tax & remittances', href: '/finance/lagos', icon: Bank },
+  { label: 'Permission matrix', description: 'Manage staff roles & access', href: '/roles', icon: ShieldCheck },
+];
+
+const VEHICLE_CLASSES = [
+  { id: 'standard', label: 'Standard · 4 seats' },
+  { id: 'comfort', label: 'Comfort Executive' },
+  { id: 'keke', label: 'Kero Keke' },
+];
+
+export default function DashboardOverviewPage() {
+  const { admin } = useAuthStore();
+  const [pickup, setPickup] = useState('');
+  const [destination, setDestination] = useState('');
+  const [today, setToday] = useState('');
+  const [salutation, setSalutation] = useState('Welcome back');
+
+  useEffect(() => {
+    setToday(new Date().toLocaleDateString('en-NG', { weekday: 'long', day: 'numeric', month: 'long' }));
+    setSalutation(greeting());
+  }, []);
+
+  const { data, isLoading, refetch, isFetching } = useQuery<DashboardResponse>({
+    queryKey: ['admin', 'dashboard'],
+    queryFn: async () => {
+      const res = await api.get('/admin/dashboard');
+      return res.data?.data;
+    },
+    refetchInterval: 30000,
+  });
+
+  const overview = data?.overview;
+  const revenue = data?.revenue;
+  const trips = data?.trips;
+  const drivers = data?.drivers;
+
+  const activeDrivers = overview?.activeDrivers ?? drivers?.online ?? 0;
+  const totalDrivers = overview?.totalDrivers ?? 0;
+  const totalRiders = overview?.totalRiders ?? 0;
+  const onTrip = drivers?.onTrip ?? 0;
+  const utilisation = activeDrivers > 0 ? Math.round((onTrip / activeDrivers) * 100) : 0;
+  const firstName = admin?.fullname?.split(' ')[0];
+
+  return (
+    <div className="mx-auto max-w-[1280px] space-y-8">
+        {/* ------------------------------------------------------------ Header */}
+        <div className="flex flex-col gap-5 pt-2 sm:flex-row sm:items-end sm:justify-between">
+          <div>
+            <p className="h-5 text-[13px] font-medium text-muted">{today}</p>
+            <h1 className="mt-1 text-[28px] font-bold leading-tight tracking-[-0.03em] text-foreground">
+              {salutation}
+              {firstName ? `, ${firstName}` : ''}
+            </h1>
+            <p className="mt-1 text-[14px] text-muted">Here’s what’s happening across Kero today.</p>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <AppButton
+              variant="tertiary"
+              startContent={<ArrowClockwise className={isFetching ? 'animate-spin' : ''} />}
+              label="Refresh"
+              onPress={() => refetch()}
+              isDisabled={isFetching}
             />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
+
+            {/* Centered HeroUI modal control */}
+            <Link href="/trips?dispatch=1">
+              <AppButton variant="brand" startContent={<Plus weight="bold" />} label="Create dispatch" />
+            </Link>
+          </div>
         </div>
-      </main>
-    </div>
+
+        {/* -------------------------------------------------------- Stat cards */}
+        <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 xl:grid-cols-4">
+          <StatDashboardCard
+            label="Gross revenue · today"
+            icon={Wallet}
+            variant="wallet"
+            loading={isLoading}
+            value={formatKoboToNaira(revenue?.today)}
+            hint={
+              <div className="flex items-center gap-2">
+                <Delta value={revenue?.weekChangePercent ?? 0} />
+                <span>vs last week</span>
+              </div>
+            }
+          />
+
+          <StatDashboardCard
+            label="Active rides"
+            icon={Path}
+            loading={isLoading}
+            value={formatNumber(overview?.activeTrips)}
+            hint={`${formatNumber(overview?.completedTripsToday)} completed today`}
+          />
+
+          <StatDashboardCard
+            label="Active drivers"
+            icon={SteeringWheel}
+            loading={isLoading}
+            value={formatNumber(activeDrivers)}
+            hint={`${formatNumber(totalDrivers)} registered drivers · ${formatNumber(onTrip)} in-flight`}
+          />
+
+          <StatDashboardCard
+            label="KYC review queue"
+            icon={IdentificationCard}
+            loading={isLoading}
+            value={formatNumber(drivers?.pendingKYC)}
+            hint={
+              <Link href="/drivers/review-queue" className="inline-flex items-center gap-1 font-medium text-link hover:underline">
+                Review submissions <ArrowRight size={12} weight="bold" />
+              </Link>
+            }
+          />
+        </div>
+
+        {/* --------------------------------------------------- Operations row */}
+        <div className="grid grid-cols-1 gap-5 lg:grid-cols-3">
+          {/* Dispatch performance Chart */}
+          <DispatchPerformanceChart
+            activeDrivers={activeDrivers}
+            onTrip={onTrip}
+            cancelRateToday={trips?.cancelRateToday}
+            todayRevenue={revenue?.today}
+          />
+
+          {/* Quick actions */}
+          <DashboardCard>
+            <h2 className="text-[16px] font-bold text-foreground">Quick actions</h2>
+            <p className="mt-0.5 text-[13px] text-muted">Jump straight into triage</p>
+
+            <ul className="mt-4 -mx-2 space-y-0.5">
+              {QUICK_LINKS.map((link) => {
+                const LinkIcon = link.icon;
+                return (
+                  <li key={link.href}>
+                    <Link
+                      href={link.href}
+                      className="group flex items-center gap-3 rounded-2xl px-2 py-2.5 transition-colors hover:bg-surface-secondary"
+                    >
+                      <span className="grid size-10 shrink-0 place-items-center rounded-xl bg-default text-foreground">
+                        <LinkIcon size={20} />
+                      </span>
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate text-[14px] font-medium text-foreground">{link.label}</span>
+                        <span className="block truncate text-xs text-muted">{link.description}</span>
+                      </span>
+                      <ArrowRight
+                        size={16}
+                        className="text-muted transition-transform group-hover:translate-x-0.5 group-hover:text-foreground"
+                      />
+                    </Link>
+                  </li>
+                );
+              })}
+            </ul>
+          </DashboardCard>
+        </div>
+      </div>
   );
 }

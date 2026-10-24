@@ -1,26 +1,386 @@
+@import url("https://api.fontshare.com/v2/css?f[]=satoshi@300,400,500,700,900&display=swap");
+/* Tailwind CSS v4 + HeroUI v3 */
 @import "tailwindcss";
+@import "@heroui/styles";
 
+/* Class-based dark mode: `.dark` on <html> (HeroUI also honours data-theme). */
+@custom-variant dark (&:where(.dark, .dark *, [data-theme="dark"], [data-theme="dark"] *));
+
+/* -------------------------------------------------------------------------- */
+/* Kero primitive palette (mirrors kero-mobile/packages/ui/src/theme.css).     */
+/* Application code must use the semantic tokens below, never these scales    */
+/* or raw hex values.                                                         */
+/* -------------------------------------------------------------------------- */
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --kero-primary-50: #efefee;
+  --kero-primary-100: #cecdca;
+  --kero-primary-200: #b6b4b1;
+  --kero-primary-300: #94928d;
+  --kero-primary-400: #807d77;
+  --kero-primary-500: #605d55;
+  --kero-primary-600: #57554d;
+  --kero-primary-700: #44423c;
+  --kero-primary-800: #35332f;
+  --kero-primary-900: #282724;
+
+  --kero-secondary-50: #f8f4ed;
+  --kero-secondary-100: #e6dec6;
+  --kero-secondary-200: #e0cdab;
+  --kero-secondary-300: #d1b784;
+  --kero-secondary-400: #c9a96d;
+  --kero-secondary-500: #bb9348;
+  --kero-secondary-600: #aa8642;
+  --kero-secondary-700: #856833;
+  --kero-secondary-800: #675128;
+  --kero-secondary-900: #4f321e;
+
+  --kero-gray-default: #fdfdfd;
+  --kero-gray-subtle: #f4f4f4;
+  --kero-gray-border: #d1d1d1;
+  --kero-gray-border-disabled: #eeeeee;
+  --kero-gray-title: #353535;
+  --kero-gray-body: #7b7b7b;
+  --kero-gray-disabled-text: #a4a4a4;
+
+  --kero-error: #ff0000;
+  --kero-error-subtle: #ffe6e6;
+  --kero-error-light: #ff5454;
+  --kero-error-border: #e80000;
+
+  --kero-success: #34c759;
+  --kero-success-subtle: #ebf9ee;
+  --kero-success-light: #77b990;
+  --kero-success-dark: #258d3f;
 }
 
+/* ------------------------------- Light ----------------------------------- */
+:root,
+[data-theme="light"] {
+  --radius: 0.625rem;
+
+  --background: #f5f5f5;
+  --foreground: var(--kero-gray-title);
+  --surface: #ffffff;
+  --surface-foreground: var(--foreground);
+  --surface-secondary: #f7f7f6;
+  --surface-secondary-foreground: var(--foreground);
+  --surface-tertiary: #f3f3f2;
+  --surface-tertiary-foreground: var(--foreground);
+  --overlay: #ffffff;
+  --overlay-foreground: var(--foreground);
+  --backdrop: rgb(24 23 21 / 32%);
+  --muted: var(--kero-gray-body);
+  --muted-foreground: var(--kero-gray-body);
+  --default: var(--kero-gray-subtle);
+  --default-foreground: var(--foreground);
+  --accent: var(--kero-secondary-500);
+  --accent-foreground: var(--kero-primary-900);
+  --primary: var(--kero-primary-700);
+  --primary-foreground: var(--kero-gray-default);
+  --secondary: var(--kero-secondary-500);
+  --secondary-foreground: var(--kero-primary-900);
+  --secondary-soft: var(--kero-secondary-50);
+  --secondary-soft-foreground: var(--kero-secondary-700);
+  --field-background: #fafafa;
+  --field-foreground: var(--foreground);
+  --field-placeholder: var(--kero-gray-disabled-text);
+  --field-border: #dededb;
+  --success: var(--kero-success);
+  --success-foreground: #12341d;
+  --warning: var(--kero-secondary-400);
+  --warning-foreground: var(--kero-secondary-900);
+  --danger: var(--kero-error-border);
+  --danger-foreground: var(--kero-gray-default);
+  --border: #e5e5e2;
+  --separator: #eeeeeb;
+  --focus: var(--kero-secondary-500);
+  --link: var(--kero-primary-600);
+  --wallet-card: var(--kero-primary-800);
+  --wallet-card-foreground: var(--kero-primary-50);
+  --wallet-card-muted: var(--kero-primary-200);
+  --wallet-card-icon: var(--kero-primary-700);
+  --disabled: var(--kero-gray-border-disabled);
+  --disabled-foreground: var(--kero-gray-disabled-text);
+
+  /* Admin shell: the sidebar always sits on the Kero primary brand surface. */
+  --sidebar: var(--kero-primary-900);
+  --sidebar-foreground: var(--kero-primary-50);
+  --sidebar-muted: var(--kero-primary-300);
+  --sidebar-hover: var(--kero-primary-800);
+  --sidebar-border: var(--kero-primary-800);
+  --sidebar-active: var(--kero-secondary-500);
+  --sidebar-active-foreground: var(--kero-primary-900);
+
+  /* Chart series (validated categorical palette, fixed order) */
+  --chart-1: #b3832c;
+  --chart-2: #2a78d6;
+  --chart-3: #1baf7a;
+}
+
+/* -------------------------------- Dark ----------------------------------- */
+.dark,
+[data-theme="dark"] {
+  --background: #12110f;
+  --foreground: #f5f4f2;
+  --surface: #1b1a18;
+  --surface-foreground: var(--foreground);
+  --surface-secondary: #23221f;
+  --surface-secondary-foreground: var(--foreground);
+  --surface-tertiary: #2b2925;
+  --surface-tertiary-foreground: var(--foreground);
+  --overlay: #1b1a18;
+  --overlay-foreground: var(--foreground);
+  --backdrop: rgb(0 0 0 / 48%);
+  --muted: #a9a69f;
+  --muted-foreground: #a9a69f;
+  --default: #2b2925;
+  --default-foreground: var(--foreground);
+  --accent: var(--kero-secondary-500);
+  --accent-foreground: var(--kero-primary-900);
+  --primary: var(--kero-primary-200);
+  --primary-foreground: var(--kero-primary-900);
+  --secondary: var(--kero-secondary-500);
+  --secondary-foreground: var(--kero-primary-900);
+  --secondary-soft: rgb(187 147 72 / 14%);
+  --secondary-soft-foreground: var(--kero-secondary-300);
+  --field-background: #222221;
+  --field-foreground: var(--foreground);
+  --field-placeholder: var(--muted-foreground);
+  --field-border: #35332f;
+  --success: var(--kero-success-light);
+  --success-foreground: #12341d;
+  --warning: var(--kero-secondary-300);
+  --warning-foreground: var(--kero-secondary-900);
+  --danger: var(--kero-error-light);
+  --danger-foreground: var(--kero-primary-900);
+  --border: #35332f;
+  --separator: #2b2925;
+  --focus: var(--kero-secondary-400);
+  --link: var(--kero-secondary-300);
+  --wallet-card: var(--kero-primary-900);
+  --wallet-card-foreground: #f5f4f2;
+  --wallet-card-muted: #a9a69f;
+  --wallet-card-icon: var(--kero-primary-800);
+  --disabled: #35332f;
+  --disabled-foreground: #77736c;
+
+  --sidebar: #171614;
+  --sidebar-foreground: #f5f4f2;
+  --sidebar-muted: #8f8b84;
+  --sidebar-hover: #23221f;
+  --sidebar-border: #23221f;
+  --sidebar-active: var(--kero-secondary-500);
+  --sidebar-active-foreground: var(--kero-primary-900);
+
+  /* Chart series (validated categorical palette, fixed order) */
+  --chart-1: #b88a35;
+  --chart-2: #3987e5;
+  --chart-3: #199e70;
+}
+
+/* -------------------------------------------------------------------------- */
+/* Tailwind utility mapping. HeroUI already exposes background, surface,      */
+/* muted, accent, border, separator, field, success, warning, danger, etc.    */
+/* -------------------------------------------------------------------------- */
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  /* Satoshi is served by Fontshare as ONE family with real weights, so only   */
+  /* the family is declared here. font-medium / font-bold stay weight utilities. */
+  --font-sans: "Satoshi", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-secondary-soft: var(--secondary-soft);
+  --color-secondary-soft-foreground: var(--secondary-soft-foreground);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-disabled: var(--disabled);
+  --color-disabled-foreground: var(--disabled-foreground);
+  --color-wallet-card: var(--wallet-card);
+  --color-wallet-card-foreground: var(--wallet-card-foreground);
+  --color-wallet-card-muted: var(--wallet-card-muted);
+  --color-wallet-card-icon: var(--wallet-card-icon);
+
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-muted: var(--sidebar-muted);
+  --color-sidebar-hover: var(--sidebar-hover);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-active: var(--sidebar-active);
+  --color-sidebar-active-foreground: var(--sidebar-active-foreground);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+@source "./";
+
+@layer base {
+  html {
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+  }
+
+  body {
+    background: var(--background);
+    color: var(--foreground);
+    font-family: var(--font-sans);
+    font-size: 14px;
+    line-height: 1.5;
+    letter-spacing: -0.005em;
+    min-height: 100vh;
+  }
+
+  h1,
+  h2,
+  h3,
+  h4 {
+    letter-spacing: -0.02em;
+  }
+
+  ::selection {
+    background: var(--secondary-soft);
+    color: var(--foreground);
+  }
+
+  /* Universal shadow removal for all inputs and form fields */
+  input,
+  textarea,
+  select,
+  [data-slot="input"],
+  [data-slot="input-group"] {
+    box-shadow: none !important;
   }
 }
 
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+/* -------------------------------------------------------------------------- */
+/* Data tables — one quiet style for every list in the admin.                 */
+/* No header fill, no uppercase, hairline row separators, soft hover.         */
+/* Lives in `components` so per-cell utilities (alignment, width) still win.  */
+/* -------------------------------------------------------------------------- */
+@layer components {
+  .data-table {
+    width: 100%;
+    text-align: left;
+    font-size: 13px;
+    border-collapse: collapse;
+  }
+
+  .data-table thead th {
+    padding: 12px 16px;
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--muted);
+    white-space: nowrap;
+    background: transparent;
+  }
+
+  .data-table tbody td {
+    padding: 14px 16px;
+    vertical-align: middle;
+  }
+
+  .data-table tbody tr {
+    border-top: 1px solid var(--separator);
+    transition: background-color 150ms ease;
+  }
+
+  .data-table tbody tr:hover {
+    background: var(--surface-secondary);
+  }
+
+  .data-table th:first-child,
+  .data-table td:first-child {
+    padding-left: 24px;
+  }
+
+  .data-table th:last-child,
+  .data-table td:last-child {
+    padding-right: 24px;
+  }
+}
+
+/* Slim, on-brand range sliders (native input[type=range]). */
+@layer base {
+  input[type="range"] {
+    -webkit-appearance: none;
+    appearance: none;
+    height: 4px;
+    border-radius: 9999px;
+    background: var(--default);
+    cursor: pointer;
+  }
+
+  input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 18px;
+    height: 18px;
+    border-radius: 9999px;
+    background: var(--surface);
+    border: 5px solid var(--secondary);
+  }
+
+  input[type="range"]::-moz-range-thumb {
+    width: 18px;
+    height: 18px;
+    border-radius: 9999px;
+    background: var(--surface);
+    border: 5px solid var(--secondary);
+  }
+
+  input[type="range"]::-moz-range-progress {
+    height: 4px;
+    border-radius: 9999px;
+    background: var(--secondary);
+  }
+}
+
+@utility tabular {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Quiet scrollbar for chat feeds and lists: thin, no arrow buttons, and only
+   visible while hovering the scroll area. */
+@utility scroll-thin {
+  scrollbar-width: thin;
+  scrollbar-color: transparent transparent;
+  &:hover {
+    scrollbar-color: color-mix(in oklab, var(--muted) 45%, transparent) transparent;
+  }
+  &::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  &::-webkit-scrollbar-button {
+    display: none;
+  }
+  &::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  &::-webkit-scrollbar-thumb {
+    background: transparent;
+    border-radius: 9999px;
+  }
+  &:hover::-webkit-scrollbar-thumb {
+    background: color-mix(in oklab, var(--muted) 45%, transparent);
+  }
+}
+
+@utility scrollbar-none {
+  scrollbar-width: none;
+  &::-webkit-scrollbar {
+    display: none;
+  }
+}
+
+/* Overlays: one consistent, stronger frosted backdrop for every modal,
+   drawer and alert dialog (whatever variant the call site passes). */
+.modal__backdrop:not(.modal__backdrop--transparent),
+.drawer__backdrop:not(.drawer__backdrop--transparent),
+.alert-dialog__backdrop:not(.alert-dialog__backdrop--transparent) {
+  background-color: var(--backdrop);
+  -webkit-backdrop-filter: blur(20px) saturate(120%);
+  backdrop-filter: blur(20px) saturate(120%);
 }
