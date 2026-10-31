@@ -51,6 +51,13 @@ import { LiveTrip, OnlineDriver } from '@/types/admin';
 
 
 
+/** Driver status as shown in the online drivers table. */
+const DRIVER_STATE: Record<string, { label: string; tone: 'success' | 'accent' | 'warning' | 'neutral' }> = {
+  AVAILABLE: { label: 'Free', tone: 'success' },
+  IN_TRIP: { label: 'On a trip', tone: 'accent' },
+  BACKGROUND: { label: 'App in background', tone: 'warning' },
+};
+
 export default function LiveWatchPage() {
   const queryClient = useQueryClient();
   const [selectedDriver, setSelectedDriver] = useState<OnlineDriver | null>(null);
@@ -405,64 +412,67 @@ export default function LiveWatchPage() {
 
                 {/* Online Drivers Card */}
                 {tab === 'drivers' && (
-                <DashboardCard className="flex-1">
+                <DashboardCard className="flex-1 overflow-hidden p-0">
                   <SectionHeader
+                    className="p-6 pb-4"
                     title="Online drivers"
                     actions={<span className="tabular text-[13px] text-muted">{filteredDrivers.length} shown</span>}
                   />
-
-                  <div className="mt-4 grid grid-cols-1 gap-2 md:grid-cols-2 xl:grid-cols-3">
-                    {filteredDrivers.length === 0 ? (
-                      <p className="col-span-full py-10 text-center text-sm text-muted">
-                        No drivers matching filters.
-                      </p>
-                    ) : (
-                      filteredDrivers.map((driver) => {
-                        const isAvailable = driver.status === 'AVAILABLE';
-                        return (
-                          <div
-                            key={driver.driverId}
-                            onClick={() => {
-                              setSelectedDriver(driver);
-                              const trip = tripsList.find((t) => t.driver?.id === driver.driverId);
-                              setSelectedTrip(trip ?? null);
-                            }}
-                            className={`p-3 rounded-2xl transition-colors cursor-pointer flex items-center justify-between ${
-                              selectedDriver?.driverId === driver.driverId
-                                ? 'bg-accent-soft/40'
-                                : 'bg-field/40 hover:bg-field/70'
-                            }`}
-                          >
-                            <div className="flex items-center gap-2.5 min-w-0">
-                              <UserAvatar
-                                src={driver.avatarUrl || driver.selfieUrl}
-                                name={`${driver.firstname} ${driver.lastname}`}
-                                size="sm"
-                              />
-                              <div className="min-w-0">
-                                <p className="text-xs font-bold text-foreground truncate">
-                                  {driver.firstname} {driver.lastname}
-                                </p>
-                                <p className="text-[11px] text-muted truncate">
+                  <div className="overflow-x-auto">
+                    <table className="data-table">
+                      <thead>
+                        <tr>
+                          <th>Driver</th>
+                          <th>Vehicle</th>
+                          <th>Status</th>
+                          <th>Last update</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {filteredDrivers.length === 0 ? (
+                          <tr>
+                            <td colSpan={4} className="py-10 text-center text-sm text-muted">
+                              No drivers matching filters.
+                            </td>
+                          </tr>
+                        ) : (
+                          filteredDrivers.map((driver) => {
+                            const state = DRIVER_STATE[driver.status] ?? { label: driver.status.toLowerCase(), tone: 'neutral' as const };
+                            return (
+                              <tr
+                                key={driver.driverId}
+                                onClick={() => {
+                                  setSelectedDriver(driver);
+                                  const trip = tripsList.find((t) => t.driver?.id === driver.driverId);
+                                  setSelectedTrip(trip ?? null);
+                                }}
+                                className={`cursor-pointer ${selectedDriver?.driverId === driver.driverId ? 'bg-accent-soft/40' : ''}`}
+                              >
+                                <td>
+                                  <div className="flex items-center gap-2.5">
+                                    <UserAvatar src={driver.avatarUrl || driver.selfieUrl} name={`${driver.firstname} ${driver.lastname}`} size="sm" />
+                                    <span className="font-medium text-foreground">
+                                      {driver.firstname} {driver.lastname}
+                                    </span>
+                                  </div>
+                                </td>
+                                <td className="text-muted">
                                   {driver.vehicle?.model ?? 'Vehicle'} · {driver.vehicle?.licensePlate ?? 'No plate'}
-                                </p>
-                              </div>
-                            </div>
-
-                            <div className="text-right shrink-0">
-                              <span
-                                className={`inline-block size-2 rounded-full ${
-                                  isAvailable ? 'bg-success' : 'bg-accent'
-                                }`}
-                              />
-                              <p className="text-[11px] text-muted uppercase tabular mt-0.5">
-                                {isAvailable ? 'Free' : 'Trip'}
-                              </p>
-                            </div>
-                          </div>
-                        );
-                      })
-                    )}
+                                </td>
+                                <td>
+                                  <StatusPill tone={state.tone} dot>
+                                    {state.label}
+                                  </StatusPill>
+                                </td>
+                                <td className="tabular text-muted">
+                                  {driver.location?.updatedAt ? new Date(driver.location.updatedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '—'}
+                                </td>
+                              </tr>
+                            );
+                          })
+                        )}
+                      </tbody>
+                    </table>
                   </div>
                 </DashboardCard>
                 )}

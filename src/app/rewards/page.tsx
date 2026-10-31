@@ -12,6 +12,7 @@ import { toast } from 'sonner';
 import { ArrowClockwise, CurrencyNgn, Gift, PencilSimple, ShieldCheck, UsersThree } from '@phosphor-icons/react';
 import { AppButton } from '@/components/ui/app-button';
 import { AppInput } from '@/components/ui/app-input';
+import { MoneyInput } from '@/components/ui/money-input';
 import { AppModal } from '@/components/ui/app-modal';
 import { DashboardCard, StatDashboardCard } from '@/components/ui/dashboard-card';
 import { DetailList, Page, PageHeader, SectionHeader, StatusPill } from '@/components/ui/page';
@@ -214,29 +215,45 @@ export default function RewardsPage() {
               </div>
             )}
           />
-          <AppInput
-            label="Referrer reward (kobo)"
-            type="number"
-            {...register('referrerRewardValueKobo', { valueAsNumber: true })}
-            errorMessage={errors.referrerRewardValueKobo?.message}
+          <Controller
+            control={control}
+            name="referrerRewardValueKobo"
+            render={({ field }) => (
+              <MoneyInput label="Referrer reward" valueKobo={field.value} onChangeKobo={(k) => field.onChange(k ?? 0)} errorMessage={errors.referrerRewardValueKobo?.message} />
+            )}
           />
-          <AppInput
-            label="New user reward (kobo)"
-            type="number"
-            {...register('referredRewardValueKobo', { valueAsNumber: true })}
-            errorMessage={errors.referredRewardValueKobo?.message}
+          <Controller
+            control={control}
+            name="referredRewardValueKobo"
+            render={({ field }) => (
+              <MoneyInput label="New user reward" valueKobo={field.value} onChangeKobo={(k) => field.onChange(k ?? 0)} errorMessage={errors.referredRewardValueKobo?.message} />
+            )}
           />
-          <AppInput
-            label="Trips to unlock"
-            type="number"
-            {...register('minTripsForUnlock', { valueAsNumber: true })}
-            errorMessage={errors.minTripsForUnlock?.message}
+          <Controller
+            control={control}
+            name="minTripsForUnlock"
+            render={({ field }) => (
+              <AppInput
+                label="Trips to unlock"
+                type="number"
+                value={field.value ?? ''}
+                onChange={(e) => field.onChange(e.target.value === '' ? undefined : Number(e.target.value))}
+                errorMessage={errors.minTripsForUnlock?.message}
+              />
+            )}
           />
-          <AppInput
-            label="Days to complete (0 = no limit)"
-            type="number"
-            {...register('unlockWindowDays', { valueAsNumber: true })}
-            errorMessage={errors.unlockWindowDays?.message}
+          <Controller
+            control={control}
+            name="unlockWindowDays"
+            render={({ field }) => (
+              <AppInput
+                label="Days to complete (0 = no limit)"
+                type="number"
+                value={field.value ?? ''}
+                onChange={(e) => field.onChange(e.target.value === '' ? undefined : Number(e.target.value))}
+                errorMessage={errors.unlockWindowDays?.message}
+              />
+            )}
           />
           <Controller
             control={control}

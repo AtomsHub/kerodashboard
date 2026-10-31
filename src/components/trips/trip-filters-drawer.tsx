@@ -105,8 +105,7 @@ export function TripFiltersDrawer({ value, onApply }: { value: TripFilters; onAp
                     options={[
                       { key: 'all', label: 'All' },
                       { key: 'WALLET', label: 'Wallet' },
-                      { key: 'CASH', label: 'Cash' },
-                      { key: 'CARD', label: 'Card' },
+                      { key: 'CASH', label: 'Cash (old trips)' },
                     ]}
                   />
                 </section>

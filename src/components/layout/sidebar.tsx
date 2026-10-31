@@ -5,6 +5,7 @@ import React, { Suspense } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import {
+  Pulse,
   SquaresFour,
   Broadcast,
   SteeringWheel,
@@ -31,6 +32,15 @@ import {
   ChartPieSlice,
   UserCircle,
   Headset,
+  ListMagnifyingGlass,
+  Coins,
+  ChartBar,
+  Sliders,
+  CheckSquare,
+  ShieldWarning,
+  XCircle,
+  Percent,
+  Bank,
   type Icon as PhosphorIcon,
 } from '@phosphor-icons/react';
 import { Avatar, Tooltip } from '@heroui/react';
@@ -82,7 +92,13 @@ const NAV_GROUPS: NavGroup[] = [
     title: 'Finance & Regulatory',
     items: [
       { label: 'Finance Overview', href: '/finance', icon: Wallet, permission: 'view_transactions' },
+      { label: 'Payment Issues', href: '/finance/payment-issues', icon: ListMagnifyingGlass, permission: 'view_transactions' },
       { label: 'Payment Ledger', href: '/finance/payments', icon: CreditCard, permission: 'view_transactions' },
+      { label: 'Wallets', href: '/finance/wallets', icon: Coins, permission: 'view_ledger' },
+      { label: 'Approvals', href: '/finance/approvals', icon: CheckSquare, permission: 'view_ledger' },
+      { label: 'Financial Reports', href: '/finance/reports', icon: ChartBar, permission: 'view_financial_reports' },
+      { label: 'Payment Settings', href: '/finance/payment-settings', icon: Sliders, permission: 'view_payment_settings' },
+      { label: 'Bank Accounts', href: '/finance/bank-accounts', icon: Bank, permission: 'view_payment_settings' },
       { label: 'Lagos State Revenue', href: '/finance/lagos', icon: Buildings, permission: 'view_transactions' },
       { label: 'Settlements & Payouts', href: '/finance/settlements', icon: Receipt, permission: 'view_transactions' },
     ],
@@ -99,9 +115,12 @@ const NAV_GROUPS: NavGroup[] = [
   {
     title: 'System & Security',
     items: [
-      { label: 'System Config', href: '/config/dispatch', icon: SlidersHorizontal, permission: 'view_dispatch_config' },
+      { label: 'Dispatch', href: '/config/dispatch', icon: SlidersHorizontal, permission: 'view_dispatch_config' },
+      { label: 'Cancellations', href: '/config/cancellation', icon: XCircle, permission: 'view_dispatch_config' },
+      { label: 'Anti-fraud', href: '/config/fraud', icon: ShieldWarning, permission: 'view_dispatch_config' },
       { label: 'Roles & Staff', href: '/roles', icon: ShieldCheck, permission: 'view_roles' },
       { label: 'Audit Trail', href: '/audit', icon: ClockCounterClockwise, permission: 'view_admin_users' },
+      { label: 'Server Monitor', href: '/system/monitor', icon: Pulse, permission: 'view_server_monitor' },
     ],
   },
   {
@@ -131,7 +150,7 @@ function SidebarContent({ collapsed, onNavigate }: { collapsed: boolean; onNavig
       (item) =>
         !item.permission ||
         admin?.isSuperAdmin ||
-        (admin as any)?.role === 'SUPER_ADMIN' ||
+        (admin as { role?: string } | null)?.role === 'SUPER_ADMIN' ||
         hasPermission(item.permission),
     ),
   })).filter((group) => group.items.length > 0);

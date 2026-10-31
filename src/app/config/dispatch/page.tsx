@@ -21,7 +21,6 @@ import {
 } from '@phosphor-icons/react';
 import { Modal } from '@heroui/react';
 import { AppButton } from '@/components/ui/app-button';
-import { ConfigTabs } from '@/components/config/config-tabs';
 import { DashboardCard } from '@/components/ui/dashboard-card';
 import { DetailList, Page, PageHeader, SectionHeader, StatusPill } from '@/components/ui/page';
 import { Can } from '@/components/auth/can';
@@ -199,7 +198,6 @@ export default function DispatchConfigPage() {
         }
       />
 
-      <ConfigTabs />
 
       {isError && (
         <DashboardCard className="bg-warning-soft/50">

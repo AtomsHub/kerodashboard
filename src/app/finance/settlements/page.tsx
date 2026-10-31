@@ -1,61 +1,35 @@
 'use client';
 
 // src/app/finance/settlements/page.tsx
-// Phase 3: Driver Bank Disbursements, Gateway Reconciliations & Cash Payment Disputes
+// Driver withdrawals and gateway health (Kero is cashless).
 import React, { useState } from 'react';
 import Link from 'next/link';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { useForm } from 'react-hook-form';
-import { zodResolver } from '@hookform/resolvers/zod';
 import {
-  ArrowsLeftRight,
   MagnifyingGlass,
   ArrowClockwise,
   Bank,
-  CheckCircle,
-  XCircle,
-  Clock,
-  CurrencyNgn,
-  ShieldCheck,
-  Lightning,
-  Funnel,
   CaretLeft,
   Copy,
   Check,
-  WarningCircle,
-  DeviceMobile,
-  Scales,
   ArrowsCounterClockwise,
-  ArrowSquareOut,
-  SlidersHorizontal,
-  User,
-  Phone,
   Broadcast,
 } from '@phosphor-icons/react';
-import { Card, Chip, Modal, Alert } from '@heroui/react';
 import { toast } from 'sonner';
 import { AppButton } from '@/components/ui/app-button';
 import { AppInput } from '@/components/ui/app-input';
-import { AppTextarea } from '@/components/ui/app-textarea';
 import { AppSelect } from '@/components/ui/app-select';
 import { AppRowActions } from '@/components/ui/app-row-actions';
 import { DashboardCard, StatDashboardCard } from '@/components/ui/dashboard-card';
 import { EmptyState, Page, PageHeader, SectionHeader, Segmented, SkeletonRows, StatusPill } from '@/components/ui/page';
 import { PermissionGuard } from '@/components/auth/can';
 import { api } from '@/lib/api';
-import { applyApiFormError } from '@/lib/errors';
 import {
   DriverDisbursementItem,
-  CashDisputeItem,
   GatewayHealthItem,
-  OutstandingDriverItem,
 } from '@/types/admin';
-import {
-  resolveDisputeSchema,
-  type ResolveDisputeInput,
-} from '@/lib/schemas/admin.schemas';
 
-type TabKey = 'disbursements' | 'disputes' | 'outstanding' | 'gateways';
+type TabKey = 'disbursements' | 'gateways';
 
 const formatDateShort = (v?: string | null) =>
   v ? new Date(v).toLocaleDateString('en-NG', { month: 'short', day: 'numeric', year: 'numeric' }) : '—';
@@ -68,10 +42,6 @@ export default function SettlementsPage() {
   // Filters for Disbursements
   const [disbursementStatus, setDisbursementStatus] = useState<string>('all');
   const [disbursementSearch, setDisbursementSearch] = useState<string>('');
-
-  // Dispute Resolve Modal
-  const [selectedDispute, setSelectedDispute] = useState<CashDisputeItem | null>(null);
-  const [isResolveModalOpen, setIsResolveModalOpen] = useState(false);
 
   // Copy helper
   const copyToClipboard = (text: string) => {
@@ -116,66 +86,6 @@ export default function SettlementsPage() {
         completedAt: t.createdAt,
       }));
       return { total: res.data.data.total ?? disbursements.length, disbursements };
-    },
-  });
-
-  // ── Query: Cash Payment Disputes ──────────────────────────────────────
-  const {
-    data: disputesData,
-    isLoading: isDisputesLoading,
-    refetch: refetchDisputes,
-    isFetching: isDisputesFetching,
-  } = useQuery<{
-    total: number;
-    disputes: CashDisputeItem[];
-  }>({
-    queryKey: ['admin', 'settlements', 'disputes'],
-    queryFn: async () => {
-      try {
-        const res = await api.get<{
-          data: { total: number; disputes: CashDisputeItem[] } | CashDisputeItem[];
-        }>('/payments/admin/cash/disputes');
-        const raw = res.data?.data;
-        if (raw && !Array.isArray(raw) && Array.isArray(raw.disputes)) {
-          return { total: raw.total ?? raw.disputes.length, disputes: raw.disputes };
-        }
-        if (Array.isArray(raw)) {
-          return { total: raw.length, disputes: raw };
-        }
-      } catch (err) {
-        throw err;
-      }
-      throw new Error('Unexpected response from server');
-    },
-  });
-
-  // ── Query: Outstanding Cash Debt ──────────────────────────────────────
-  const {
-    data: outstandingData,
-    isLoading: isOutstandingLoading,
-    refetch: refetchOutstanding,
-    isFetching: isOutstandingFetching,
-  } = useQuery<{
-    total: number;
-    drivers: OutstandingDriverItem[];
-  }>({
-    queryKey: ['admin', 'settlements', 'outstanding'],
-    queryFn: async () => {
-      try {
-        const res = await api.get<{
-          data: { total: number; drivers: OutstandingDriverItem[] } | OutstandingDriverItem[];
-        }>('/payments/admin/cash/outstanding');
-        const raw = res.data?.data;
-        if (raw && !Array.isArray(raw) && Array.isArray(raw.drivers)) {
-          return { total: raw.total ?? raw.drivers.length, drivers: raw.drivers };
-        }
-        if (Array.isArray(raw)) {
-          return { total: raw.length, drivers: raw };
-        }
-      } catch (err) {
-        throw err;
-      }
-      throw new Error('Unexpected response from server');
     },
   });
 
@@ -236,52 +146,6 @@ export default function SettlementsPage() {
     },
   });
 
-  // ── Mutation: Resolve Cash Dispute ────────────────────────────────────
-  const {
-    register: registerResolve,
-    handleSubmit: handleResolveSubmit,
-    formState: { errors: resolveErrors, isSubmitting: isResolving },
-    reset: resetResolveForm,
-    setError: setResolveFormError,
-  } = useForm<ResolveDisputeInput>({
-    resolver: zodResolver(resolveDisputeSchema),
-    defaultValues: {
-      resolution: 'REFUND_RIDER',
-      notes: '',
-    },
-  });
-
-  const resolveDisputeMutation = useMutation({
-    mutationFn: async ({ disputeId, data }: { disputeId: string; data: ResolveDisputeInput }) => {
-      const res = await api.put(`/payments/admin/cash/disputes/${disputeId}`, data);
-      return res.data;
-    },
-    onSuccess: () => {
-      toast.success('Cash dispute resolved and settled in transaction ledger.');
-      setIsResolveModalOpen(false);
-      setSelectedDispute(null);
-      resetResolveForm();
-      refetchDisputes();
-    },
-    onError: (err: any) => {
-      applyApiFormError(err, { setError: setResolveFormError });
-    },
-  });
-
-  const onResolveSubmit = (values: ResolveDisputeInput) => {
-    if (!selectedDispute) return;
-    resolveDisputeMutation.mutate({ disputeId: selectedDispute.id, data: values });
-  };
-
-  const openResolveModal = (dispute: CashDisputeItem) => {
-    setSelectedDispute(dispute);
-    resetResolveForm({
-      resolution: 'REFUND_RIDER',
-      notes: `Resolution for trip ${dispute.tripId}: Verified cash payment logs.`,
-    });
-    setIsResolveModalOpen(true);
-  };
-
   return (
     <PermissionGuard permission="view_transactions">
       <Page>
@@ -292,14 +156,14 @@ export default function SettlementsPage() {
               </Link>
             }
             title="Settlements"
-            description="Driver payouts, cash disputes and gateway health."
+            description="Driver withdrawals and payment gateway health. Kero is cashless."
             actions={
               <AppButton
                 variant="tertiary"
                 startContent={
                   <ArrowClockwise
                     className={
-                      isDisbursementsFetching || isDisputesFetching || isOutstandingFetching || isGatewaysFetching
+                      isDisbursementsFetching || isGatewaysFetching
                         ? 'animate-spin'
                         : ''
                     }
@@ -308,28 +172,19 @@ export default function SettlementsPage() {
                 label="Refresh"
                 onPress={() => {
                   refetchDisbursements();
-                  refetchDisputes();
-                  refetchOutstanding();
                   refetchGateways();
                 }}
               />
             }
           />
 
-          <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-4">
+          <div className="grid grid-cols-1 gap-5 sm:grid-cols-2">
             <StatDashboardCard
               label="Payouts"
               icon={Bank}
               variant="wallet"
               value={disbursementsData?.total ?? 0}
               hint="Driver bank transfers"
-            />
-            <StatDashboardCard label="Open disputes" icon={Scales} value={disputesData?.total ?? 0} hint="Awaiting a decision" />
-            <StatDashboardCard
-              label="Drivers in arrears"
-              icon={DeviceMobile}
-              value={outstandingData?.total ?? 0}
-              hint="Recovered on next trips"
             />
             <StatDashboardCard
               label="Healthy gateways"
@@ -345,8 +200,6 @@ export default function SettlementsPage() {
             onChange={setActiveTab}
             options={[
               { key: 'disbursements', label: 'Payouts', count: disbursementsData?.total ?? 0 },
-              { key: 'disputes', label: 'Disputes', count: disputesData?.total ?? 0 },
-              { key: 'outstanding', label: 'Arrears', count: outstandingData?.total ?? 0 },
               { key: 'gateways', label: 'Gateways' },
             ]}
           />
@@ -471,148 +324,6 @@ export default function SettlementsPage() {
             </DashboardCard>
           )}
 
-          {activeTab === 'disputes' && (
-            <DashboardCard className="overflow-hidden p-0">
-              <SectionHeader
-                className="p-6 pb-4"
-                title="Cash disputes"
-                description="When a driver and rider disagree about a cash payment."
-              />
-
-              <div className="overflow-x-auto">
-                <table className="data-table">
-                  <thead>
-                    <tr>
-                      <th>Dispute</th>
-                      <th>Driver</th>
-                      <th>Rider</th>
-                      <th>Amount</th>
-                      <th>Reason</th>
-                      <th>Status</th>
-                      <th className="text-right" />
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {isDisputesLoading ? (
-                      <SkeletonRows cols={7} />
-                    ) : (disputesData?.disputes.length ?? 0) === 0 ? (
-                      <tr>
-                        <td colSpan={7}>
-                          <EmptyState icon={CheckCircle} title="No open disputes" />
-                        </td>
-                      </tr>
-                    ) : (
-                      disputesData?.disputes.map((dispute) => (
-                        <tr key={dispute.id}>
-                          <td>
-                            <div className="tabular font-medium text-foreground">{dispute.id.slice(0, 10)}</div>
-                            <Link href={`/trips/${dispute.tripId}`} className="tabular text-xs text-muted hover:underline">
-                              Trip {dispute.tripId.slice(0, 8)}
-                            </Link>
-                          </td>
-                          <td className="text-foreground">{dispute.driverName || 'Driver'}</td>
-                          <td className="text-foreground">{dispute.riderName || 'Rider'}</td>
-                          <td className="tabular whitespace-nowrap font-medium text-foreground">
-                            ₦{(dispute.disputedAmountKobo / 100).toLocaleString('en-NG', { minimumFractionDigits: 2 })}
-                          </td>
-                          <td className="max-w-xs truncate text-muted">{dispute.reason}</td>
-                          <td>
-                            {dispute.status === 'PENDING' ? (
-                              <StatusPill tone="warning">In review</StatusPill>
-                            ) : dispute.status === 'RESOLVED' ? (
-                              <StatusPill tone="success">Resolved</StatusPill>
-                            ) : (
-                              <StatusPill>Dismissed</StatusPill>
-                            )}
-                          </td>
-                          <td className="text-right">
-                            {dispute.status === 'PENDING' && (
-                              <AppButton size="sm" variant="tertiary" label="Resolve" onPress={() => openResolveModal(dispute)} />
-                            )}
-                          </td>
-                        </tr>
-                      ))
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            </DashboardCard>
-          )}
-
-          {activeTab === 'outstanding' && (
-            <DashboardCard className="overflow-hidden p-0">
-              <SectionHeader
-                className="p-6 pb-4"
-                title="Cash arrears"
-                description="Commission and road tax owed from cash trips."
-              />
-
-              <div className="overflow-x-auto">
-                <table className="data-table">
-                  <thead>
-                    <tr>
-                      <th>Driver</th>
-                      <th>Phone</th>
-                      <th>Cash trips</th>
-                      <th>Owed</th>
-                      <th>Owing since</th>
-                      <th>Last reminder</th>
-                      <th className="w-12" />
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {isOutstandingLoading ? (
-                      <SkeletonRows cols={7} />
-                    ) : (outstandingData?.drivers.length ?? 0) === 0 ? (
-                      <tr>
-                        <td colSpan={7}>
-                          <EmptyState icon={CheckCircle} title="No arrears" description="Every driver is square." />
-                        </td>
-                      </tr>
-                    ) : (
-                      outstandingData?.drivers.map((drv) => (
-                        <tr key={drv.driverId}>
-                          <td>
-                            <Link href={`/drivers/${drv.driverId}`} className="font-medium text-foreground hover:underline">
-                              {drv.name}
-                            </Link>
-                          </td>
-                          <td className="tabular text-muted">{drv.phone || '—'}</td>
-                          <td className="tabular text-muted">{(drv as any).totalCashTrips ?? '—'}</td>
-                          <td className="tabular whitespace-nowrap font-medium text-danger">
-                            ₦{(drv.outstandingFeesKobo / 100).toLocaleString('en-NG', { minimumFractionDigits: 2 })}
-                          </td>
-                          <td className="tabular whitespace-nowrap text-muted">{formatDateShort((drv as any).firstOutstandingAt)}</td>
-                          <td className="tabular whitespace-nowrap text-muted">
-                            {formatDateShort((drv as any).lastReminderAt)}
-                          </td>
-                          <td className="text-right">
-                            <AppRowActions
-                              items={[
-                                {
-                                  key: 'remind',
-                                  label: 'Send reminder',
-                                  icon: <Phone size={14} />,
-                                  onClick: () => toast.success(`Reminder sent to ${drv.name}`),
-                                },
-                                {
-                                  key: 'profile',
-                                  label: 'View driver',
-                                  icon: <User size={14} />,
-                                  href: `/drivers/${drv.driverId}`,
-                                },
-                              ]}
-                            />
-                          </td>
-                        </tr>
-                      ))
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            </DashboardCard>
-          )}
-
           {activeTab === 'gateways' && (
             <div className="space-y-5">
               <SectionHeader
@@ -684,100 +395,6 @@ export default function SettlementsPage() {
             </div>
           )}
 
-          {/* ════════════════════════════════════════════════════════════════
-              MODAL: RESOLVE CASH DISPUTE (Centered Compound)
-             ════════════════════════════════════════════════════════════════ */}
-          <Modal>
-            <Modal.Backdrop
-              isOpen={isResolveModalOpen}
-              onOpenChange={setIsResolveModalOpen}
-            >
-              <Modal.Container placement="center" size="md">
-                <Modal.Dialog className="rounded-3xl bg-overlay p-7">
-                  <form onSubmit={handleResolveSubmit(onResolveSubmit)} className="space-y-4">
-                    <div className="flex items-center gap-2.5">
-                      <div>
-                        <h3 className="text-[18px] font-bold tracking-[-0.02em] text-foreground">Resolve Cash Dispute</h3>
-                        <p className="mt-1 text-[13px] text-muted">
-                          Arbitrate trip #{selectedDispute?.tripId.slice(0, 8)}
-                        </p>
-                      </div>
-                    </div>
-
-                    {selectedDispute && (
-                      <div className="p-3 rounded-lg bg-surface-secondary text-xs space-y-1.5">
-                        <div className="flex justify-between">
-                          <span className="text-muted">Driver:</span>
-                          <span className="font-semibold text-foreground">{selectedDispute.driverName}</span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span className="text-muted">Rider:</span>
-                          <span className="font-semibold text-foreground">{selectedDispute.riderName}</span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span className="text-muted">Disputed Sum:</span>
-                          <span className="tabular font-bold text-primary">
-                            ₦{(selectedDispute.disputedAmountKobo / 100).toLocaleString('en-NG', { minimumFractionDigits: 2 })}
-                          </span>
-                        </div>
-                      </div>
-                    )}
-
-                    <div className="space-y-1.5">
-                      <label className="text-xs font-semibold text-foreground">
-                        Arbitration Ruling
-                      </label>
-                      <select
-                        {...registerResolve('resolution')}
-                        className="w-full h-10 px-3 rounded-lg bg-background text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
-                      >
-                        <option value="REFUND_RIDER">Refund Rider (Debit Driver's Wallet / Arrears)</option>
-                        <option value="PAY_DRIVER">Pay Driver (Credit Driver Wallet from Platform Escrow)</option>
-                        <option value="SPLIT">50/50 Split Settlement</option>
-                        <option value="DISMISS">Dismiss Dispute (Uphold Recorded Fare)</option>
-                      </select>
-                      {resolveErrors.resolution && (
-                        <p className="text-xs text-danger">{resolveErrors.resolution.message}</p>
-                      )}
-                    </div>
-
-                    <div className="space-y-1.5">
-                      <AppTextarea
-                        label="Audit Resolution Notes"
-                        placeholder="State findings from telematics or rider/driver statements..."
-                        isRequired
-                        rows={3}
-                        {...registerResolve('notes')}
-                        errorMessage={resolveErrors.notes?.message}
-                      />
-                    </div>
-
-                    <div className="flex items-center justify-end gap-3 pt-3">
-                      <AppButton
-                        variant="outline"
-                        size="sm"
-                        type="button"
-                        onClick={() => {
-                          setIsResolveModalOpen(false);
-                          setSelectedDispute(null);
-                        }}
-                      >
-                        Cancel
-                      </AppButton>
-                      <AppButton
-                        variant="primary"
-                        size="sm"
-                        type="submit"
-                        isLoading={isResolving || resolveDisputeMutation.isPending}
-                      >
-                        Enforce Resolution
-                      </AppButton>
-                    </div>
-                  </form>
-                </Modal.Dialog>
-              </Modal.Container>
-            </Modal.Backdrop>
-          </Modal>
         </Page>
     </PermissionGuard>
   );

@@ -1,7 +1,7 @@
 'use client';
 
 // src/components/layout/app-shell.tsx
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useSyncExternalStore } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { Sidebar } from './sidebar';
 import { Topbar } from './topbar';
@@ -9,56 +9,61 @@ import { NetworkBanner } from './network-banner';
 import { SosAlarmOverlay } from './sos-alarm-overlay';
 import { getSocket, setupAdminSocketListeners } from '@/lib/socket';
 import { redirectToLogin, useAuthStore } from '@/stores/auth-store';
+import axios from 'axios';
 import { API_BASE_URL } from '@/lib/api';
 import { AppButton } from '@/components/ui/app-button';
 import { ArrowClockwise, WifiSlash } from '@phosphor-icons/react';
 import { useUIStore, applyTheme } from '@/stores/ui-store';
 
+const noopSubscribe = () => () => {};
+const subscribeHydration = (onChange: () => void) => useAuthStore.persist?.onFinishHydration?.(onChange) ?? (() => {});
+
 export function AppShell({ children }: { children: React.ReactNode }) {
   const queryClient = useQueryClient();
   const { admin, accessToken, error: authError, isLoading: authLoading, fetchAdminMe } = useAuthStore();
   const { isDarkMode } = useUIStore();
-  const [isClient, setIsClient] = useState(false);
-  const [hasHydrated, setHasHydrated] = useState(false);
+  // True in the browser, false while rendering on the server.
+  const isClient = useSyncExternalStore(noopSubscribe, () => true, () => false);
+  // The persisted admin profile has been read back from localStorage.
+  const hasHydrated = useSyncExternalStore(
+    subscribeHydration,
+    () => useAuthStore.persist?.hasHydrated?.() ?? true,
+    () => false,
+  );
   const fetchedRef = React.useRef(false);
-
-  useEffect(() => {
-    setIsClient(true);
-    // Check zustand hydration
-    if (useAuthStore.persist?.hasHydrated?.()) {
-      setHasHydrated(true);
-    } else {
-      const unsub = useAuthStore.persist?.onFinishHydration?.(() => {
-        setHasHydrated(true);
-      });
-      // Safety timeout if listener already fired
-      const timer = setTimeout(() => setHasHydrated(true), 100);
-      return () => {
-        unsub?.();
-        clearTimeout(timer);
-      };
-    }
-  }, []);
 
   // Secure: redirect to /login only after client hydration confirms no session
   useEffect(() => {
     if (!isClient || !hasHydrated) return;
 
-    // Check if token exists in state or in localStorage
-    let token = accessToken;
-    if (!token && typeof window !== 'undefined') {
+    if (accessToken) return;
+    // The token isn't stored (memory only): get a fresh one from the httpOnly
+    // refresh cookie. Signed out (4xx) → login; server unreachable → retry.
+    let cancelled = false;
+    let retry: ReturnType<typeof setTimeout> | undefined;
+    const restore = async () => {
       try {
-        const stored = localStorage.getItem('kero-admin-auth');
-        if (stored) {
-          const parsed = JSON.parse(stored);
-          token = parsed?.state?.accessToken;
-        }
-      } catch {}
-    }
-
-    if (!token) {
-      redirectToLogin();
-    }
+        const res = await axios.post(
+          `${API_BASE_URL}/auth/refresh`,
+          {},
+          { withCredentials: true, headers: { Accept: 'application/json' } },
+        );
+        const token = res.data?.data?.accessToken || res.data?.accessToken;
+        if (cancelled) return;
+        if (token) useAuthStore.getState().setAccessToken(token);
+        else redirectToLogin();
+      } catch (err) {
+        if (cancelled) return;
+        const status = axios.isAxiosError(err) ? err.response?.status : undefined;
+        if (status && status < 500) redirectToLogin();
+        else retry = setTimeout(() => void restore(), 3000);
+      }
+    };
+    void restore();
+    return () => {
+      cancelled = true;
+      if (retry) clearTimeout(retry);
+    };
   }, [isClient, hasHydrated, accessToken]);
 
   // Re-apply the persisted light/dark preference to <html> once hydrated

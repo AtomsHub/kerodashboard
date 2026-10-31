@@ -7,8 +7,9 @@
 import React, { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
-import { MapPin, Phone, Siren, SpeakerHigh, SpeakerSlash } from '@phosphor-icons/react';
+import { Phone, Siren, SpeakerHigh, SpeakerSlash } from '@phosphor-icons/react';
 import { AppButton } from '@/components/ui/app-button';
+import { PlaceName } from '@/components/ui/place-name';
 import { useAuthStore } from '@/stores/auth-store';
 import { useSosAlarmStore, type SosParty } from '@/stores/sos-alarm-store';
 import { playEmergencyAlarmSound, unlockAlarmAudio } from '@/lib/alarm-sound';
@@ -113,15 +114,9 @@ export function SosAlarmOverlay() {
         ) : null}
 
         {alarm.location ? (
-          <a
-            href={`https://www.google.com/maps?q=${alarm.location.lat},${alarm.location.lng}`}
-            target="_blank"
-            rel="noreferrer"
-            className="tabular mt-4 inline-flex items-center gap-1.5 text-[13px] text-muted hover:text-foreground"
-          >
-            <MapPin size={14} weight="duotone" />
-            {alarm.location.lat.toFixed(5)}, {alarm.location.lng.toFixed(5)}
-          </a>
+          <div className="mt-4">
+            <PlaceName lat={alarm.location.lat} lng={alarm.location.lng} />
+          </div>
         ) : null}
 
         <div className="mt-6 flex flex-col gap-2 sm:flex-row">

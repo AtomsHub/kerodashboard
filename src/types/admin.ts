@@ -5,6 +5,7 @@ export const ALL_PERMISSIONS = [
   // Dashboard
   'view_dashboard',
   'view_live_watch',
+  'view_server_monitor',
 
   // Drivers
   'view_drivers',
@@ -35,6 +36,17 @@ export const ALL_PERMISSIONS = [
   'view_kero_commission',
   'view_lagos_commission',
   'export_transactions',
+  'resolve_payments',
+  'approve_refunds',
+  'view_ledger',
+  'adjust_wallet',
+  'approve_wallet_adjustment',
+  'approve_withdrawals',
+  'view_payment_settings',
+  'manage_payment_providers',
+  'manage_fee_policies',
+  'view_financial_reports',
+  'run_reconciliation',
 
   // Pricing
   'view_pricing',
@@ -117,8 +129,6 @@ export const ALL_PERMISSIONS = [
   'manage_fleet',
   'view_dispatch_config',
   'manage_dispatch_config',
-  'view_cash_config',
-  'manage_cash_config',
   'view_referral_config',
   'manage_referral_config',
 
@@ -720,6 +730,8 @@ export interface PricingDto {
   cancellationFeeKobo: number;
   keroCommissionRate: number;
   lagosFlatCostPerTripKobo: number;
+  lagosFeeType: "FIXED" | "PERCENT";
+  lagosPercentBps: number;
   isActive: boolean;
   createdAt: string;
   updatedAt: string;
@@ -957,6 +969,8 @@ export interface FinanceTransactionDriver {
 
 export interface FinanceTransactionItem {
   id: string;
+  needsReview: boolean;
+  reviewReason: string | null;
   transactionId: string;
   reference: string;
   amountKobo: number;

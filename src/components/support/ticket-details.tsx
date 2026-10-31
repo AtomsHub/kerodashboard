@@ -26,6 +26,7 @@ import { AppTextarea } from '@/components/ui/app-textarea';
 import { UserAvatar } from '@/components/ui/user-avatar';
 import { Can } from '@/components/auth/can';
 import { api } from '@/lib/api';
+import { PlaceName } from '@/components/ui/place-name';
 import { formatDate, formatDateTime } from '@/lib/format';
 import type { DetailedSosAlertItem } from '@/types/admin';
 import { CATEGORY_LABELS, TicketStatusPill, formatRelative, isClosed } from './support-meta';
@@ -165,16 +166,7 @@ export function TicketDetails({ ticketId }: { ticketId: string }) {
           </p>
           <div className="space-y-2.5">
             {sosMessage && <p className="text-[14px] font-medium text-foreground">“{sosMessage}”</p>}
-            {sosLocation && (
-              <a
-                href={`https://www.google.com/maps?q=${sosLocation.lat},${sosLocation.lng}`}
-                target="_blank"
-                rel="noreferrer"
-                className="inline-flex items-center gap-1.5 text-[13px] font-medium text-foreground hover:underline"
-              >
-                <MapPin size={15} weight="duotone" /> Open location in Maps
-              </a>
-            )}
+            {sosLocation && <PlaceName lat={sosLocation.lat} lng={sosLocation.lng} className="font-medium text-foreground" />}
             {otherParty && (
               <div className="flex items-center justify-between gap-3 text-[13px]">
                 <span className="min-w-0 truncate text-foreground">

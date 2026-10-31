@@ -256,10 +256,10 @@ export function TicketConversation({
                     >
                       {msg.text}
                     </button>
-                    {/* Time + read state: on hover, or tap the bubble (touch screens). */}
+                    {/* Time + read state: click the bubble to show it. */}
                     <span
                       className={`tabular mt-1 px-1 text-[11px] text-muted transition-opacity ${
-                        expanded ? 'opacity-100' : 'h-0 overflow-hidden opacity-0 group-hover:h-auto group-hover:opacity-100'
+                        expanded ? 'opacity-100' : 'h-0 overflow-hidden opacity-0'
                       }`}
                     >
                       {isAdmin ? `${msg.senderName} · ` : ''}

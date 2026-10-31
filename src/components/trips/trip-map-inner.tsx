@@ -2,7 +2,8 @@
 
 // src/components/trips/trip-map-inner.tsx
 // Leaflet map for a single trip: planned route, pickup/drop-off, recorded
-// driver + rider breadcrumbs and their live positions.
+// driver + rider breadcrumbs, their live positions, and where the driver
+// was when they accepted, arrived, started and ended the trip.
 
 import React, { useEffect, useRef } from 'react';
 import L from 'leaflet';
@@ -49,6 +50,21 @@ function dotIcon(color: string, ring = '#ffffff') {
   });
 }
 
+/** Small labelled pin for a trip step ("Arrived · 10:32"). */
+function stepIcon(label: string, bg: string) {
+  return L.divIcon({
+    className: '',
+    iconSize: [0, 0],
+    iconAnchor: [0, 0],
+    html: `<span style="position:absolute;left:0;top:0;transform:translate(-50%,-100%);display:flex;flex-direction:column;align-items:center"><span style="white-space:nowrap;padding:3px 8px;border-radius:9999px;background:${bg};color:#fff;font:600 11px Satoshi,system-ui;box-shadow:0 1px 4px rgba(0,0,0,.25)">${label}</span><span style="width:2px;height:6px;background:${bg}"></span><span style="width:8px;height:8px;border-radius:9999px;background:${bg};border:2px solid #fff"></span></span>`,
+  });
+}
+
+const STEP_KEYS = ['accepted', 'arrived', 'started', 'ended'];
+const STEP_LABELS: Record<string, string> = { accepted: 'Accepted', arrived: 'Arrived', started: 'Started', ended: 'Ended' };
+const MARKER_BG = '#2b2a28'; // dark pin on the light map, in light and dark mode
+const stepTime = (at: string | null) => (at ? new Date(at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : null);
+
 function badgeIcon(label: string, bg: string, fg: string, heading?: number | null) {
   const arrow =
     typeof heading === 'number'
@@ -71,6 +87,7 @@ export default function TripMapInner({
   driverLocation,
   riderLocation,
   follow,
+  checkpoints,
 }: TripMapProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<L.Map | null>(null);
@@ -125,6 +142,16 @@ export default function TripMapInner({
     L.marker([start.lat, start.lng], { icon: dotIcon(success) }).bindTooltip('Pickup').addTo(layer);
     L.marker([end.lat, end.lng], { icon: dotIcon(ink) }).bindTooltip('Drop-off').addTo(layer);
 
+    // Where the driver was when they accepted, arrived, started and ended.
+    for (const c of checkpoints ?? []) {
+      if (!STEP_KEYS.includes(c.key) || !c.location) continue;
+      const time = stepTime(c.at);
+      const label = STEP_LABELS[c.key] ?? c.label;
+      L.marker([c.location.lat, c.location.lng], { icon: stepIcon(time ? `${label} · ${time}` : label, MARKER_BG), zIndexOffset: 200 })
+        .bindTooltip(c.label)
+        .addTo(layer);
+    }
+
     if (!fittedRef.current) {
       const bounds = L.latLngBounds(plannedLine);
       driverTrail.forEach((p) => bounds.extend([p.lat, p.lng]));
@@ -132,7 +159,7 @@ export default function TripMapInner({
       map.fitBounds(bounds, { padding: [48, 48], maxZoom: 16 });
       fittedRef.current = true;
     }
-  }, [start, end, polyline, driverTrail, riderTrail, driverLocation]);
+  }, [start, end, polyline, driverTrail, riderTrail, driverLocation, checkpoints]);
 
   // Live driver / rider markers.
   useEffect(() => {

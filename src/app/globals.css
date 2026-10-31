@@ -384,3 +384,42 @@
   -webkit-backdrop-filter: blur(20px) saturate(120%);
   backdrop-filter: blur(20px) saturate(120%);
 }
+
+/* Scrollbars inside modals and drawers: slim, rounded, kept clear of the
+   rounded corners, and only darkened while the pointer is over the dialog. */
+.modal__dialog,
+.modal__dialog *,
+.drawer__dialog,
+.drawer__dialog * {
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in oklab, var(--muted) 35%, transparent) transparent;
+}
+.modal__dialog::-webkit-scrollbar,
+.modal__dialog *::-webkit-scrollbar,
+.drawer__dialog::-webkit-scrollbar,
+.drawer__dialog *::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+.modal__dialog::-webkit-scrollbar-button,
+.modal__dialog *::-webkit-scrollbar-button {
+  display: none;
+}
+.modal__dialog::-webkit-scrollbar-track,
+.modal__dialog *::-webkit-scrollbar-track {
+  background: transparent;
+  margin-block: 24px;
+}
+.modal__dialog::-webkit-scrollbar-thumb,
+.modal__dialog *::-webkit-scrollbar-thumb,
+.drawer__dialog::-webkit-scrollbar-thumb,
+.drawer__dialog *::-webkit-scrollbar-thumb {
+  background: color-mix(in oklab, var(--muted) 35%, transparent);
+  border-radius: 9999px;
+}
+
+/* No modal is ever taller than the screen: long ones scroll inside. */
+.modal__dialog {
+  max-height: 88vh;
+  overflow-y: auto;
+}

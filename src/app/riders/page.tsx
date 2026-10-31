@@ -5,15 +5,12 @@
 // Features:
 // - Paginated passenger table with wallet balance in ₦, total trips, rating, and status
 // - Quick search by passenger name, phone, or email
-// - Filtering by suspension status and cash payment restrictions
-// - Toggle Cash Payment Block modal (`toggleCashSchema`) with mandatory reason requirement
+// - Filtering by suspension status and riders who owe Kero (cancellation fees)
 // - Built on HeroUI v3 compound Modal, AppInput, AppTextarea, AppButton, and Satoshi tokens
 
 import React, { useState, useMemo } from 'react';
 import Link from 'next/link';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { useForm } from 'react-hook-form';
-import { zodResolver } from '@hookform/resolvers/zod';
+import { useQuery } from '@tanstack/react-query';
 import {
   UsersThree,
   MagnifyingGlass,
@@ -22,7 +19,6 @@ import {
   Phone,
   Star,
   Wallet,
-  Money,
   CheckCircle,
   XCircle,
   CaretLeft,
@@ -33,10 +29,9 @@ import {
   LockKey,
   Path,
 } from '@phosphor-icons/react';
-import { Card, Chip, Modal, Alert, Skeleton } from '@heroui/react';
+import { Skeleton } from '@heroui/react';
 import { AppButton } from '@/components/ui/app-button';
 import { AppInput } from '@/components/ui/app-input';
-import { AppTextarea } from '@/components/ui/app-textarea';
 import { AppSelect } from '@/components/ui/app-select';
 import { AppRowActions } from '@/components/ui/app-row-actions';
 import { DashboardCard, StatDashboardCard } from '@/components/ui/dashboard-card';
@@ -45,38 +40,28 @@ import { UserAvatar } from '@/components/ui/user-avatar';
 import { PermissionGuard, Can } from '@/components/auth/can';
 import { SortableTh, useTableSort } from '@/components/ui/sortable-th';
 import { api } from '@/lib/api';
-import { applyApiFormError } from '@/lib/errors';
 import { formatKoboToNaira, formatNumber } from '@/lib/utils';
 import { AdminRiderListItem } from '@/types/admin';
-import {
-  toggleCashSchema,
-  type ToggleCashInput,
-} from '@/lib/schemas/admin.schemas';
 
 interface RiderStats {
   total: number;
   suspended: number;
-  cashBlocked: number;
+  owing?: number;
   newThisWeek?: number;
   activeThisMonth?: number;
   walletFloatKobo?: number;
 }
 
 export default function RidersPage() {
-  const queryClient = useQueryClient();
   const [page, setPage] = useState(1);
   const [limit] = useState(15);
   const [search, setSearch] = useState('');
-  const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'suspended' | 'cash_blocked'>('all');
+  const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'suspended' | 'owing'>('all');
   // Online first, then most recently seen.
   const { sort, toggle: toggleSort } = useTableSort<'activity' | 'name' | 'wallet' | 'createdAt'>(
     { key: 'activity', order: 'desc' },
     () => setPage(1),
   );
-
-  // Modals state
-  const [modifyingRider, setModifyingRider] = useState<AdminRiderListItem | null>(null);
-  const [modalAlert, setModalAlert] = useState<string | null>(null);
 
   // ── Query: Riders List ─────────────────────────────────────────────
   const {
@@ -96,7 +81,7 @@ export default function RidersPage() {
       if (search.trim()) params.set('search', search.trim());
       if (statusFilter === 'suspended') params.set('isSuspended', 'true');
       if (statusFilter === 'active') params.set('isSuspended', 'false');
-      if (statusFilter === 'cash_blocked') params.set('cashPaymentBlocked', 'true');
+      if (statusFilter === 'owing') params.set('hasOutstandingDebt', 'true');
 
       const res = await api.get<{ data: { total: number; page: number; riders: AdminRiderListItem[] } }>(
         `/admin/riders?${params.toString()}`,
@@ -131,41 +116,12 @@ export default function RidersPage() {
     refetchInterval: 60000,
   });
 
-  // ── Form: Toggle Cash Payment Block ─────────────────────────────────
-  const cashForm = useForm<ToggleCashInput>({
-    resolver: zodResolver(toggleCashSchema),
-    defaultValues: {
-      blocked: true,
-      reason: '',
-    },
-  });
-
-  const toggleCashMutation = useMutation({
-    mutationFn: async (payload: ToggleCashInput) => {
-      if (!modifyingRider) return;
-      const res = await api.put(`/admin/riders/${modifyingRider.id}/toggle-cash`, payload);
-      return res.data;
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['admin', 'riders'] });
-      setModifyingRider(null);
-      cashForm.reset();
-      setModalAlert(null);
-    },
-    onError: (err) => {
-      applyApiFormError(err, {
-        setError: cashForm.setError,
-        setFormError: setModalAlert,
-      });
-    },
-  });
-
   return (
     <PermissionGuard permission="view_riders">
         <Page>
           <PageHeader
             title="Riders"
-            description="Passenger accounts, wallets and payment restrictions."
+            description="Passenger accounts and wallets. Kero is cashless: every ride is paid from the wallet."
             actions={
               <AppButton
                 variant="tertiary"
@@ -204,8 +160,8 @@ export default function RidersPage() {
               label="Restricted"
               icon={ShieldWarning}
               loading={statsLoading}
-              value={formatNumber((stats?.suspended ?? 0) + (stats?.cashBlocked ?? 0))}
-              hint={`${formatNumber(stats?.suspended)} suspended · ${formatNumber(stats?.cashBlocked)} cash blocked`}
+              value={formatNumber((stats?.suspended ?? 0) + (stats?.owing ?? 0))}
+              hint={`${formatNumber(stats?.suspended)} suspended · ${formatNumber(stats?.owing ?? 0)} owing Kero`}
             />
           </div>
 
@@ -222,7 +178,7 @@ export default function RidersPage() {
                 options={[
                   { key: 'all', label: 'All' },
                   { key: 'active', label: 'Active' },
-                  { key: 'cash_blocked', label: 'Cash blocked' },
+                  { key: 'owing', label: 'Owing Kero' },
                   { key: 'suspended', label: 'Suspended' },
                 ]}
               />
@@ -346,7 +302,7 @@ export default function RidersPage() {
                               <StatusPill tone={rider.isSuspended ? 'danger' : 'success'} dot>
                                 {rider.isSuspended ? 'Suspended' : 'Active'}
                               </StatusPill>
-                              {rider.cashPaymentBlocked && <StatusPill tone="warning">Cash blocked</StatusPill>}
+                              {rider.walletBalance < 0 && <StatusPill tone="warning">Owes {formatKoboToNaira(-rider.walletBalance)}</StatusPill>}
                             </div>
                           </td>
 
@@ -360,18 +316,10 @@ export default function RidersPage() {
                                   href: `/riders/${rider.id}`,
                                 },
                                 {
-                                  key: 'toggle-cash',
-                                  label: rider.cashPaymentBlocked ? 'Allow cash trips' : 'Block cash trips',
-                                  icon: <Money size={14} />,
-                                  danger: !rider.cashPaymentBlocked,
-                                  onClick: () => {
-                                    setModalAlert(null);
-                                    cashForm.reset({
-                                      blocked: !rider.cashPaymentBlocked,
-                                      reason: '',
-                                    });
-                                    setModifyingRider(rider);
-                                  },
+                                  key: 'wallet',
+                                  label: 'Open wallet',
+                                  icon: <Wallet size={14} />,
+                                  href: `/finance/wallets/rider/${rider.id}`,
                                 },
                               ]}
                             />
@@ -392,88 +340,6 @@ export default function RidersPage() {
             />
           </DashboardCard>
 
-          {/* ── MODAL: Toggle Cash Payment Restriction ────────────────── */}
-          {modifyingRider && (
-            <Modal>
-              <Modal.Backdrop
-                isOpen={Boolean(modifyingRider)}
-                onOpenChange={(open) => !open && setModifyingRider(null)}
-              >
-                <Modal.Container placement="center" size="md">
-                  <Modal.Dialog className="rounded-3xl bg-overlay p-7 w-full max-w-md">
-                    <Modal.Header className="flex items-start justify-between gap-4 pb-2">
-                      <div>
-                        <Modal.Heading className="text-[18px] font-bold tracking-[-0.02em] text-foreground">
-                          {modifyingRider.cashPaymentBlocked
-                            ? 'Unblock Cash Payments'
-                            : 'Block Cash Payments'}
-                        </Modal.Heading>
-                        <p className="mt-1 text-[13px] text-muted">
-                          Passenger: {modifyingRider.fullname} ({modifyingRider.phone})
-                        </p>
-                      </div>
-                    </Modal.Header>
-
-                    <Modal.Body className="py-4 flex flex-col gap-4">
-                      {modalAlert && (
-                        <Alert status="danger">
-                          <Alert.Indicator />
-                          <Alert.Content>
-                            <Alert.Title>{modalAlert}</Alert.Title>
-                          </Alert.Content>
-                        </Alert>
-                      )}
-
-                      <form
-                        id="toggle-cash-form"
-                        onSubmit={cashForm.handleSubmit((d) => toggleCashMutation.mutate(d))}
-                        className="flex flex-col gap-4"
-                      >
-                        <p className="text-[13px] text-muted">
-                          {!modifyingRider.cashPaymentBlocked
-                            ? 'Blocking cash will restrict this passenger to Wallet or Card payments only. A justification is required for regulatory audit.'
-                            : 'Unblocking cash allows this passenger to pay drivers in cash again.'}
-                        </p>
-
-                        {!modifyingRider.cashPaymentBlocked && (
-                          <AppTextarea
-                            label="Reason for Blocking Cash"
-                            placeholder="e.g. Unsettled cash fare dispute on trip #TRP-849..."
-                            isRequired
-                            rows={3}
-                            errorMessage={cashForm.formState.errors.reason?.message}
-                            {...cashForm.register('reason')}
-                          />
-                        )}
-                      </form>
-                    </Modal.Body>
-
-                    <Modal.Footer className="flex items-center justify-end gap-2 pt-2">
-                      <AppButton
-                        variant="tertiary"
-                        label="Cancel"
-                        onPress={() => setModifyingRider(null)}
-                        isDisabled={toggleCashMutation.isPending}
-                      />
-                      <AppButton
-                        variant={modifyingRider.cashPaymentBlocked ? 'primary' : 'danger'}
-                        type="submit"
-                        form="toggle-cash-form"
-                        label={
-                          toggleCashMutation.isPending
-                            ? 'Updating...'
-                            : modifyingRider.cashPaymentBlocked
-                            ? 'Unblock Cash'
-                            : 'Block Cash'
-                        }
-                        isLoading={toggleCashMutation.isPending}
-                      />
-                    </Modal.Footer>
-                  </Modal.Dialog>
-                </Modal.Container>
-              </Modal.Backdrop>
-            </Modal>
-          )}
         </Page>
       </PermissionGuard>
   );

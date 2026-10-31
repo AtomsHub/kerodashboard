@@ -895,8 +895,6 @@ export default function TripsMasterPage() {
                           className="w-full h-11 px-3 text-sm bg-background rounded-xl text-foreground focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
                         >
                           <option value="WALLET">Passenger Wallet Balance</option>
-                          <option value="CASH">Cash Settlement</option>
-                          <option value="CARD">Saved Card</option>
                         </select>
                       </div>
                     </div>

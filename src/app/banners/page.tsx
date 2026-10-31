@@ -298,8 +298,8 @@ export default function BannersPage() {
                 }
               }}
             >
-              <Modal.Container placement="center" size="lg">
-                <Modal.Dialog className="rounded-3xl bg-overlay p-7 max-w-2xl mx-auto">
+              <Modal.Container placement="center" size="md">
+                <Modal.Dialog className="mx-auto max-h-[88vh] w-full max-w-lg overflow-y-auto rounded-3xl bg-overlay p-6">
                   <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
                     <div className="flex items-center gap-3 pb-4">
                       <div>

@@ -44,6 +44,7 @@ import { PermissionGuard, Can, usePermission } from '@/components/auth/can';
 import { AppRowActions } from '@/components/ui/app-row-actions';
 import { DashboardCard, StatDashboardCard } from '@/components/ui/dashboard-card';
 import { DriverKycPanel } from '@/components/drivers/driver-kyc-panel';
+import { DriverLocationIntegrityCard } from '@/components/drivers/driver-location-integrity-card';
 import { EmailStatusPill, KycStatusPill, kycStatusOf } from '@/components/drivers/verification-pills';
 import { UserAvatar } from '@/components/ui/user-avatar';
 import { DetailList, EmptyState, Page, PageHeader, SectionHeader, StatusPill } from '@/components/ui/page';
@@ -375,6 +376,7 @@ function DriverDetailContent() {
           </div>
 
           <DriverKycPanel kyc={driver.kyc} driverId={driver.id} />
+          <DriverLocationIntegrityCard driverId={driver.id} />
 
           <div className="grid grid-cols-1 items-start gap-5 lg:grid-cols-2">
             <DashboardCard>

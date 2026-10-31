@@ -33,6 +33,7 @@ import { Card, Chip, Modal, Dropdown } from '@heroui/react';
 import { toast } from 'sonner';
 import { AppButton } from '@/components/ui/app-button';
 import { AppInput } from '@/components/ui/app-input';
+import { MoneyInput } from '@/components/ui/money-input';
 import { AppSelect } from '@/components/ui/app-select';
 import { AppModal } from '@/components/ui/app-modal';
 import { PermissionGuard, Can, usePermission } from '@/components/auth/can';
@@ -47,6 +48,9 @@ import {
   createPricingSchema,
   type CreatePricingInput,
 } from '@/lib/schemas/admin.schemas';
+
+/** Select value for "+ Add a new class". */
+const NEW_CLASS = '__new__';
 
 export default function PricingPage() {
   const router = useRouter();
@@ -121,9 +125,51 @@ export default function PricingPage() {
       keroCommissionRate: 18,
       cancellationFeeKobo: 50000,
       waitingChargePerMinuteKobo: 3000,
+      lagosFeeType: 'FIXED',
       lagosFlatCostPerTripKobo: 5000,
+      lagosPercentBps: 0,
       isActive: true,
     },
+  });
+
+  // "+ Add a new class": create the vehicle class first, then price it.
+  const canCreateClass = usePermission('create_vehicle_type');
+  const [newClassName, setNewClassName] = useState('');
+  const [creatingClass, setCreatingClass] = useState(false);
+  const createClass = async (): Promise<string | null> => {
+    const name = newClassName.trim();
+    if (!name) {
+      toast.error('Enter a name for the new class');
+      return null;
+    }
+    setCreatingClass(true);
+    try {
+      const res = await api.post<{ data: { vehicleTypes: Array<{ id: string; name: string }> } }>('/admin/vehicle-types', { name }, { silent: true });
+      await queryClient.invalidateQueries({ queryKey: ['admin', 'vehicle-types'] });
+      const created = res.data.data.vehicleTypes.find((v) => v.name.toLowerCase() === name.toLowerCase());
+      setNewClassName('');
+      return created?.id ?? null;
+    } catch (err) {
+      toast.error((err as { response?: { data?: { error?: { message?: string } } } })?.response?.data?.error?.message ?? 'Could not create the class');
+      return null;
+    } finally {
+      setCreatingClass(false);
+    }
+  };
+
+  // Inputs are controlled so values loaded with reset() (Edit) always show.
+  type NumberKey = Exclude<keyof CreatePricingInput, 'vehicleTypeId' | 'isActive' | 'lagosFeeType'>;
+  // Money fields: typed in naira, kept in kobo.
+  type MoneyKey = 'baseFareKobo' | 'pricePerKmKobo' | 'pricePerMinuteKobo' | 'minimumFareKobo' | 'cancellationFeeKobo' | 'waitingChargePerMinuteKobo' | 'lagosFlatCostPerTripKobo';
+  const moneyField = (name: MoneyKey) => ({
+    valueKobo: watch(name) as number | undefined,
+    onChangeKobo: (kobo: number | null) =>
+      setValue(name, (kobo ?? undefined) as unknown as number, { shouldValidate: true, shouldDirty: true }),
+  });
+  const numberField = (name: NumberKey) => ({
+    value: String(watch(name) ?? ''),
+    onChange: (e: React.ChangeEvent<HTMLInputElement>) =>
+      setValue(name, e.target.value === '' ? (undefined as unknown as number) : Number(e.target.value), { shouldValidate: true, shouldDirty: true }),
   });
 
   // ── Open Add/Edit Modal ─────────────────────────────────────────────
@@ -140,7 +186,9 @@ export default function PricingPage() {
         keroCommissionRate: pricing.keroCommissionRate,
         cancellationFeeKobo: pricing.cancellationFeeKobo,
         waitingChargePerMinuteKobo: pricing.waitingChargePerMinuteKobo,
+        lagosFeeType: pricing.lagosFeeType ?? 'FIXED',
         lagosFlatCostPerTripKobo: pricing.lagosFlatCostPerTripKobo,
+        lagosPercentBps: pricing.lagosPercentBps ?? 0,
         isActive: pricing.isActive,
       });
     } else {
@@ -154,7 +202,9 @@ export default function PricingPage() {
         keroCommissionRate: 18,
         cancellationFeeKobo: 50000,
         waitingChargePerMinuteKobo: 3000,
+        lagosFeeType: 'FIXED',
         lagosFlatCostPerTripKobo: 5000,
+        lagosPercentBps: 0,
         isActive: true,
       });
     }
@@ -165,7 +215,9 @@ export default function PricingPage() {
   const savePricingMutation = useMutation({
     mutationFn: async (values: CreatePricingInput) => {
       if (editingPricing) {
-        const res = await api.put(`/admin/pricing/${editingPricing.id}`, values);
+        const { vehicleTypeId: _class, ...changes } = values;
+        void _class;
+        const res = await api.put(`/admin/pricing/${editingPricing.id}`, changes);
         return res.data;
       } else {
         const res = await api.post('/admin/pricing', values);
@@ -402,9 +454,8 @@ export default function PricingPage() {
               }
             }}
             title={editingPricing ? `Edit ${editingPricing.vehicleTypeName}` : 'New class'}
-            description={pricingStep === 1 ? 'Fares in kobo (₦1 = 100).' : 'Fees and Kero’s share.'}
+            description={pricingStep === 1 ? 'Amounts in naira.' : 'Fees and Kero’s share.'}
             step={{ current: pricingStep, total: 2 }}
-            onSubmit={handleSubmit(onSubmit)}
             footer={
               pricingStep === 1 ? (
                 <>
@@ -421,9 +472,15 @@ export default function PricingPage() {
                     variant="brand"
                     type="button"
                     label="Next"
+                    isLoading={creatingClass}
                     onPress={async () => {
-                      if (await trigger(['vehicleTypeId', 'baseFareKobo', 'pricePerKmKobo', 'pricePerMinuteKobo', 'minimumFareKobo']))
-                        setPricingStep(2);
+                      if (!(await trigger(['vehicleTypeId', 'baseFareKobo', 'pricePerKmKobo', 'pricePerMinuteKobo', 'minimumFareKobo']))) return;
+                      if (watch('vehicleTypeId') === NEW_CLASS) {
+                        const id = await createClass();
+                        if (!id) return;
+                        setValue('vehicleTypeId', id, { shouldValidate: true });
+                      }
+                      setPricingStep(2);
                     }}
                   />
                 </>
@@ -432,7 +489,8 @@ export default function PricingPage() {
                   <AppButton variant="tertiary" type="button" label="Back" onPress={() => setPricingStep(1)} />
                   <AppButton
                     variant="brand"
-                    type="submit"
+                    type="button"
+                    onPress={() => void handleSubmit(onSubmit)()}
                     label={editingPricing ? 'Save' : 'Create class'}
                     isLoading={isSubmitting || savePricingMutation.isPending}
                   />
@@ -449,53 +507,45 @@ export default function PricingPage() {
                   placeholder="Choose a class"
                   selectedKey={watch('vehicleTypeId')}
                   onSelectionChange={(key) => setValue('vehicleTypeId', key, { shouldValidate: true })}
-                  options={(vehicleTypes || []).map((vt) => ({ key: vt.id, label: vt.name }))}
+                  options={[
+                    ...(vehicleTypes || []).map((vt) => ({ key: vt.id, label: vt.name })),
+                    ...(!editingPricing && canCreateClass ? [{ key: NEW_CLASS, label: '+ Add a new class' }] : []),
+                  ]}
                   error={errors.vehicleTypeId?.message}
                 />
-                <AppInput label="Base fare" isRequired type="number" {...register('baseFareKobo')} errorMessage={errors.baseFareKobo?.message} />
-                <AppInput label="Per km" isRequired type="number" {...register('pricePerKmKobo')} errorMessage={errors.pricePerKmKobo?.message} />
-                <AppInput
-                  label="Per minute"
-                  isRequired
-                  type="number"
-                  {...register('pricePerMinuteKobo')}
-                  errorMessage={errors.pricePerMinuteKobo?.message}
-                />
-                <AppInput
-                  label="Minimum fare"
-                  isRequired
-                  type="number"
-                  {...register('minimumFareKobo')}
-                  errorMessage={errors.minimumFareKobo?.message}
-                />
+                {watch('vehicleTypeId') === NEW_CLASS && (
+                  <AppInput label="New class name" placeholder="e.g. Comfort" value={newClassName} onChange={(e) => setNewClassName(e.target.value)} />
+                )}
+                <MoneyInput label="Base fare" isRequired {...moneyField('baseFareKobo')} errorMessage={errors.baseFareKobo?.message} />
+                <MoneyInput label="Per km" isRequired {...moneyField('pricePerKmKobo')} errorMessage={errors.pricePerKmKobo?.message} />
+                <MoneyInput label="Per minute" isRequired {...moneyField('pricePerMinuteKobo')} errorMessage={errors.pricePerMinuteKobo?.message} />
+                <MoneyInput label="Minimum fare" isRequired {...moneyField('minimumFareKobo')} errorMessage={errors.minimumFareKobo?.message} />
               </>
             ) : (
               <>
-                <AppInput
-                  label="Kero commission (%)"
-                  isRequired
-                  type="number"
-                  {...register('keroCommissionRate')}
-                  errorMessage={errors.keroCommissionRate?.message}
+                <AppInput label="Kero commission (%)" isRequired type="number" {...numberField('keroCommissionRate')} errorMessage={errors.keroCommissionRate?.message} />
+                <MoneyInput label="Cancellation fee" {...moneyField('cancellationFeeKobo')} errorMessage={errors.cancellationFeeKobo?.message} />
+                <MoneyInput label="Waiting charge per minute" {...moneyField('waitingChargePerMinuteKobo')} errorMessage={errors.waitingChargePerMinuteKobo?.message} />
+                <AppSelect
+                  label="Lagos road tax"
+                  selectedKey={watch('lagosFeeType') ?? 'FIXED'}
+                  onSelectionChange={(key) => setValue('lagosFeeType', key as 'FIXED' | 'PERCENT', { shouldDirty: true })}
+                  options={[
+                    { key: 'FIXED', label: 'Fixed amount per trip' },
+                    { key: 'PERCENT', label: 'Percentage of the fare' },
+                  ]}
                 />
-                <AppInput
-                  label="Cancellation fee"
-                  type="number"
-                  {...register('cancellationFeeKobo')}
-                  errorMessage={errors.cancellationFeeKobo?.message}
-                />
-                <AppInput
-                  label="Waiting charge per minute"
-                  type="number"
-                  {...register('waitingChargePerMinuteKobo')}
-                  errorMessage={errors.waitingChargePerMinuteKobo?.message}
-                />
-                <AppInput
-                  label="Lagos road tax per trip"
-                  type="number"
-                  {...register('lagosFlatCostPerTripKobo')}
-                  errorMessage={errors.lagosFlatCostPerTripKobo?.message}
-                />
+                {watch('lagosFeeType') === 'PERCENT' ? (
+                  <AppInput
+                    label="Lagos road tax (%)"
+                    type="number"
+                    value={String((watch('lagosPercentBps') ?? 0) / 100)}
+                    onChange={(e) => setValue('lagosPercentBps', Math.round(Number(e.target.value || 0) * 100), { shouldValidate: true, shouldDirty: true })}
+                    errorMessage={errors.lagosPercentBps?.message}
+                  />
+                ) : (
+                  <MoneyInput label="Lagos road tax per trip" {...moneyField('lagosFlatCostPerTripKobo')} errorMessage={errors.lagosFlatCostPerTripKobo?.message} />
+                )}
               </>
             )}
           </AppModal>

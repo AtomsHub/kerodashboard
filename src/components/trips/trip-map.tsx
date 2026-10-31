@@ -23,6 +23,8 @@ export interface TripMapProps {
   riderLocation: TripPoint | null;
   /** Keep the driver centred as they move (active trips). */
   follow?: boolean;
+  /** Where the driver was at each step (accepted, arrived, started, ended). */
+  checkpoints?: Array<{ key: string; label: string; at: string | null; location: { lat: number; lng: number } | null }>;
 }
 
 const TripMapInner = dynamic(() => import('./trip-map-inner'), {

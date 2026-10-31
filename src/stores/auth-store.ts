@@ -19,6 +19,10 @@ interface AuthState {
 
 let lastFetchAdminMeTime = 0;
 
+/** Older sessions may carry the backend's raw role and a "*" wildcard permission. */
+type StoredAdmin = AdminUser & { role?: string };
+const hasWildcard = (admin: AdminUser) => (admin.permissions as string[] | undefined)?.includes('*') ?? false;
+
 export const useAuthStore = create<AuthState>()(
   persist(
     (set, get) => ({
@@ -30,8 +34,8 @@ export const useAuthStore = create<AuthState>()(
       hasPermission: (permission: Permission) => {
         const { admin } = get();
         if (!admin) return false;
-        if (admin.isSuperAdmin || (admin as any).role === 'SUPER_ADMIN') return true;
-        if (admin.permissions?.includes('*' as any)) return true;
+        if (admin.isSuperAdmin || (admin as StoredAdmin).role === 'SUPER_ADMIN') return true;
+        if (hasWildcard(admin)) return true;
         return admin.permissions?.includes(permission) ?? false;
       },
 
@@ -100,7 +104,7 @@ export const useAuthStore = create<AuthState>()(
           }
           return null;
         } catch (err: unknown) {
-          const status = (err as any)?.response?.status;
+          const status = (err as { response?: { status?: number } } | null)?.response?.status;
           // Only invalidate session and logout if explicitly 401 Unauthorized
           if (status === 401) {
             await get().logout();
@@ -129,7 +133,16 @@ export const useAuthStore = create<AuthState>()(
     }),
     {
       name: 'kero-admin-auth',
-      partialize: (state) => ({ admin: state.admin, accessToken: state.accessToken }),
+      // The access token stays in memory only (localStorage is readable by any
+      // injected script). After a reload the app shell gets a fresh one from the
+      // httpOnly refresh cookie.
+      partialize: (state) => ({ admin: state.admin }),
+      // v1: drop the access token that older versions saved in localStorage.
+      version: 1,
+      migrate: (persisted) => {
+        const state = (persisted ?? {}) as { admin?: AdminUser | null };
+        return { admin: state.admin ?? null } as AuthState;
+      },
     }
   )
 );

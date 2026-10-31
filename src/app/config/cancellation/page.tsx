@@ -12,14 +12,14 @@ import { FloppyDisk, PencilSimple } from '@phosphor-icons/react';
 import { AppButton } from '@/components/ui/app-button';
 import { AppInput } from '@/components/ui/app-input';
 import { AppModal } from '@/components/ui/app-modal';
-import { ConfigTabs } from '@/components/config/config-tabs';
 import { DashboardCard } from '@/components/ui/dashboard-card';
 import { DetailList, Page, PageHeader, SectionHeader, StatusPill } from '@/components/ui/page';
 import { Can } from '@/components/auth/can';
 import { api } from '@/lib/api';
 import { formatKoboToNaira } from '@/lib/utils';
+import { StopChargeCard, type StopChargePolicy } from '@/components/config/stop-charge-card';
 
-interface CancellationPolicy {
+interface CancellationPolicy extends StopChargePolicy {
   riderGraceMinutes: number;
   riderFeeAfterGraceKobo: number;
   riderArrivedPerMinuteKobo: number;
@@ -33,7 +33,7 @@ interface CancellationPolicy {
 }
 
 /** Form values as typed (naira for money, strings while editing). */
-type Form = Record<Exclude<keyof CancellationPolicy, 'driverPenaltyEnabled' | 'updatedAt'>, string> & {
+type Form = Record<Exclude<keyof CancellationPolicy, 'driverPenaltyEnabled' | 'updatedAt' | keyof StopChargePolicy>, string> & {
   driverPenaltyEnabled: boolean;
 };
 
@@ -135,7 +135,7 @@ export default function CancellationPolicyPage() {
     <Page>
       <PageHeader
         title="Settings"
-        description="What cancelling costs riders, and when drivers who cancel get paused."
+        description="What cancelling costs riders, when drivers who cancel get paused, and the stop charge."
         badge={isEditing ? <StatusPill tone="brand" dot>Editing</StatusPill> : undefined}
         actions={
           isEditing ? (
@@ -178,7 +178,6 @@ export default function CancellationPolicyPage() {
         }
       />
 
-      <ConfigTabs />
 
       {isError && (
         <DashboardCard className="bg-warning-soft/50">
@@ -249,6 +248,8 @@ export default function CancellationPolicyPage() {
               Drivers see how close they are to a pause before they confirm a cancellation.
             </p>
           </DashboardCard>
+
+          <StopChargeCard policy={policy} />
         </div>
       )}
 

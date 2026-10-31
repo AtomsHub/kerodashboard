@@ -44,11 +44,29 @@ export const useSosAlarmStore = create<SosAlarmState>((set) => ({
   setMuted: (muted) => set({ muted }),
 }));
 
+/** The `admin:sos:triggered` socket payload (current and older shapes). */
+interface RawSos {
+  emergencyId?: string | number;
+  id?: string | number;
+  tripId?: string | null;
+  ticketId?: string | null;
+  triggeredBy?: 'rider' | 'driver' | null;
+  rider?: SosParty | null;
+  driver?: SosParty | null;
+  location?: { lat?: number; lng?: number; latitude?: number; longitude?: number } | null;
+  lat?: number | null;
+  lng?: number | null;
+  message?: string | null;
+  retry?: boolean;
+  timestamp?: number;
+}
+
 /** Accepts the backend `admin:sos:triggered` payload (and the older `id` shape). */
-export function toLiveSos(p: any): LiveSos | null {
-  const id = p?.emergencyId ?? p?.id;
+export function toLiveSos(p: RawSos | null | undefined): LiveSos | null {
+  if (!p) return null;
+  const id = p.emergencyId ?? p.id;
   if (!id) return null;
-  const loc = p.location ?? (p.lat != null ? { lat: p.lat, lng: p.lng } : null);
+  const loc = p.location ?? (p.lat != null ? { lat: p.lat, lng: p.lng ?? undefined } : null);
   return {
     id: String(id),
     tripId: p.tripId ?? null,
@@ -58,9 +76,9 @@ export function toLiveSos(p: any): LiveSos | null {
     driver: p.driver ?? null,
     location:
       loc && typeof loc.lat === 'number'
-        ? { lat: loc.lat, lng: loc.lng }
+        ? { lat: loc.lat, lng: loc.lng ?? 0 }
         : loc && typeof loc.latitude === 'number'
-          ? { lat: loc.latitude, lng: loc.longitude }
+          ? { lat: loc.latitude, lng: loc.longitude ?? 0 }
           : null,
     message: p.message ?? null,
     retry: Boolean(p.retry),

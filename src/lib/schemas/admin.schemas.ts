@@ -122,21 +122,6 @@ export const driverStageReviewSchema = z
     },
   );
 
-// ─── Rider Management ─────────────────────────────────────────────────
-
-export const toggleCashSchema = z
-  .object({
-    blocked: z.boolean(),
-    reason: z.string().max(500).optional(),
-  })
-  .refine(
-    (data) => !data.blocked || (data.reason !== undefined && data.reason.trim().length > 0),
-    {
-      message: 'A reason is required when blocking cash payments for a rider',
-      path: ['reason'],
-    },
-  );
-
 // ─── Trip Operations & Emergency ──────────────────────────────────────
 
 export const dispatchTripSchema = z.object({
@@ -178,10 +163,12 @@ export const createPricingSchema = z.object({
   pricePerKmKobo: z.number().int().min(0, 'Per-km rate must be non-negative'),
   pricePerMinuteKobo: z.number().int().min(0, 'Per-minute rate must be non-negative'),
   minimumFareKobo: z.number().int().min(0, 'Minimum fare must be non-negative'),
-  keroCommissionRate: z.number().min(0).max(100).default(18),
+  keroCommissionRate: z.number().min(0).max(50, 'Kero commission can be at most 50%').default(18),
   cancellationFeeKobo: z.number().int().min(0).default(0),
   waitingChargePerMinuteKobo: z.number().int().min(0).default(0),
+  lagosFeeType: z.enum(['FIXED', 'PERCENT']).default('FIXED'),
   lagosFlatCostPerTripKobo: z.number().int().min(0).default(5000),
+  lagosPercentBps: z.number().int().min(0).max(5000).default(0),
   isActive: z.boolean().default(true),
 });
 
@@ -232,7 +219,6 @@ export type BulkSuspendInput = z.infer<typeof bulkSuspendSchema>;
 export type UnverifyDriverInput = z.infer<typeof unverifyDriverSchema>;
 export type DriverStageReviewInput = z.infer<typeof driverStageReviewSchema>;
 
-export type ToggleCashInput = z.infer<typeof toggleCashSchema>;
 
 export type DispatchTripInput = z.infer<typeof dispatchTripSchema>;
 export type AssignDriverInput = z.infer<typeof assignDriverSchema>;
@@ -277,17 +263,11 @@ export const updateLagosSettingsSchema = z.object({
   minRemittanceKobo: z.number().int().min(0),
 });
 
-export const resolveDisputeSchema = z.object({
-  resolution: z.enum(['REFUND_RIDER', 'PAY_DRIVER', 'SPLIT', 'DISMISS']),
-  notes: z.string().min(1, 'Dispute resolution notes are required for audit trail'),
-});
-
 export type CreateLagosAccountInput = z.infer<typeof createLagosAccountSchema>;
 export type VerifyLagosAccountOtpInput = z.infer<typeof verifyLagosAccountOtpSchema>;
 export type RequestLagosWithdrawalInput = z.infer<typeof requestLagosWithdrawalSchema>;
 export type ConfirmLagosWithdrawalOtpInput = z.infer<typeof confirmLagosWithdrawalOtpSchema>;
 export type UpdateLagosSettingsInput = z.infer<typeof updateLagosSettingsSchema>;
-export type ResolveDisputeInput = z.infer<typeof resolveDisputeSchema>;
 
 // ─── Phase 5: Fleet & Asset Management Schemas ─────────────────────────
 

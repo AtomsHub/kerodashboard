@@ -1,372 +1,367 @@
 'use client';
 
 // src/app/config/fraud/page.tsx
-// Phase 7.3: Anti-Fraud, Hardware Fingerprinting & Device Security Hardening
+// Anti-fraud: the live list of driver location flags (left), the rules
+// (right; Edit opens a small modal), and driver–rider pairs that keep running
+// up stop charges or fares the rider never pays (possible collusion).
+
 import React, { useState } from 'react';
+import Link from 'next/link';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import {
-  ShieldWarning,
-  ArrowCounterClockwise,
-  FloppyDisk,
-  DeviceMobile,
-  MapPinLine,
-  WarningCircle,
-  CheckCircle,
-  Prohibit,
-  Fingerprint,
-  Cpu,
-  Globe,
-  Radioactive,
-  LockKey,
-  PencilSimple,
-} from '@phosphor-icons/react';
-import { Chip, Modal } from '@heroui/react';
+import { ShieldCheck, UsersThree } from '@phosphor-icons/react';
 import { AppButton } from '@/components/ui/app-button';
 import { AppInput } from '@/components/ui/app-input';
-import { ConfigTabs } from '@/components/config/config-tabs';
-import { AppRowActions } from '@/components/ui/app-row-actions';
+import { AppModal } from '@/components/ui/app-modal';
+import { AppSelect } from '@/components/ui/app-select';
 import { DashboardCard } from '@/components/ui/dashboard-card';
 import { EmptyState, Page, PageHeader, SectionHeader, StatusPill } from '@/components/ui/page';
+import { Can } from '@/components/auth/can';
+import { api } from '@/lib/api';
+import { formatDateTime } from '@/lib/format';
+import { errorMessage, naira } from '@/lib/payments';
+import { INTEGRITY_LABELS, integrityDetail, type IntegrityEvent, type IntegrityType } from '@/lib/location-integrity';
 
-function Toggle({ checked, onChange, disabled }: { checked: boolean; onChange: (val: boolean) => void; disabled?: boolean }) {
+interface FraudPolicy {
+  blockMockLocation: boolean;
+  blockEmulators: boolean;
+  teleportGuard: boolean;
+  maxSpeedKmh: number;
+  flagsBeforeOffline: number;
+  flagWindowMinutes: number;
+  offlineMinutes: number;
+}
+
+type Modal = 'checks' | 'offline' | null;
+
+interface RidePair {
+  driverId: string;
+  driverName: string | null;
+  riderId: string;
+  riderName: string | null;
+  trips: number;
+  stopChargeTrips: number;
+  stopChargeKobo: number;
+  unpaidTrips: number;
+  unpaidKobo: number;
+}
+
+function Rows({ rows }: { rows: Array<[string, React.ReactNode]> }) {
   return (
-    <button
-      type="button"
-      role="switch"
-      aria-checked={checked}
-      disabled={disabled}
-      onClick={() => onChange(!checked)}
-      className={`relative inline-flex h-6 w-11 shrink-0 rounded-full p-0.5 transition-colors ${
-        checked ? 'bg-secondary' : 'bg-default'
-      } ${disabled ? 'cursor-default opacity-60' : 'cursor-pointer'}`}
-    >
-      <span className={`size-5 rounded-full bg-surface transition-transform ${checked ? 'translate-x-5' : 'translate-x-0'}`} />
-    </button>
+    <dl className="mt-3 divide-y divide-border">
+      {rows.map(([label, value]) => (
+        <div key={label} className="flex items-center justify-between gap-4 py-2.5">
+          <dt className="text-[13px] text-muted">{label}</dt>
+          <dd className="tabular text-right text-[13.5px] text-foreground">{value}</dd>
+        </div>
+      ))}
+    </dl>
   );
 }
 
-interface FlaggedDevice {
-  id: string;
-  hardwareFingerprint: string;
-  associatedUser: string;
-  userType: 'driver' | 'rider';
-  reason: string;
-  detectedAt: string;
-  status: 'blocked' | 'quarantined';
-}
-
-const INITIAL_FLAGGED: FlaggedDevice[] = [];
+const onOff = (v: boolean) => <StatusPill tone={v ? 'success' : 'neutral'}>{v ? 'On' : 'Off'}</StatusPill>;
+const ON_OFF = [
+  { key: 'on', label: 'On' },
+  { key: 'off', label: 'Off' },
+];
 
 export default function AntiFraudConfigPage() {
-  const [requireUniqueDevice, setRequireUniqueDevice] = useState(true);
-  const [blockEmulators, setBlockEmulators] = useState(true);
-  const [blockMockGps, setBlockMockGps] = useState(true);
-  const [ghostRidingGuard, setGhostRidingGuard] = useState(true);
-  const [maxAccountsPerDevice, setMaxAccountsPerDevice] = useState('1');
-  const [sameIpRateLimit, setSameIpRateLimit] = useState('120');
-  const [cancellationVelocityThreshold, setCancellationVelocityThreshold] = useState('4');
+  const queryClient = useQueryClient();
+  const [modal, setModal] = useState<Modal>(null);
+  const [form, setForm] = useState<FraudPolicy | null>(null);
+  const [typeFilter, setTypeFilter] = useState<'ALL' | IntegrityType>('ALL');
+  const [releaseTarget, setReleaseTarget] = useState<IntegrityEvent | null>(null);
 
-  const [flaggedDevices, setFlaggedDevices] = useState<FlaggedDevice[]>(INITIAL_FLAGGED);
-  const [isSaving, setIsSaving] = useState(false);
-  const [isEditing, setIsEditing] = useState(false);
-  const [isConfirmSaveOpen, setIsConfirmSaveOpen] = useState(false);
-  const [pendingWhitelistDevice, setPendingWhitelistDevice] = useState<FlaggedDevice | null>(null);
+  const { data: policy, isLoading } = useQuery<FraudPolicy>({
+    queryKey: ['admin', 'fraud-policy'],
+    queryFn: async () => (await api.get<{ data: FraudPolicy }>('/admin/fraud-policy')).data.data,
+  });
 
-  const handleSave = async () => {
-    setIsSaving(true);
-    await new Promise((r) => setTimeout(r, 600));
-    setIsSaving(false);
-    setIsConfirmSaveOpen(false);
-    setIsEditing(false);
-    toast.success('Anti-fraud security parameters enforced system-wide');
+  const events = useQuery<{ events: IntegrityEvent[]; total: number }>({
+    queryKey: ['admin', 'location-integrity-events', typeFilter],
+    queryFn: async () =>
+      (
+        await api.get<{ data: { events: IntegrityEvent[]; total: number } }>('/admin/location-integrity-events', {
+          params: { limit: 40, ...(typeFilter !== 'ALL' ? { type: typeFilter } : {}) },
+        })
+      ).data.data,
+    refetchInterval: 30_000,
+  });
+
+  const pairs = useQuery<RidePair[]>({
+    queryKey: ['admin', 'fraud', 'ride-pairs'],
+    queryFn: async () => (await api.get<{ data: RidePair[] }>('/admin/fraud/ride-pairs')).data.data,
+  });
+
+  const save = useMutation({
+    mutationFn: async (f: FraudPolicy) => api.put('/admin/fraud-policy', f, { silent: true }),
+    onSuccess: () => {
+      toast.success('Saved');
+      queryClient.invalidateQueries({ queryKey: ['admin', 'fraud-policy'] });
+      setModal(null);
+    },
+    onError: (err) => toast.error(errorMessage(err, 'Could not save')),
+  });
+
+  const release = useMutation({
+    mutationFn: async (driverId: string) => api.post(`/admin/drivers/${driverId}/location-block/clear`, undefined, { silent: true }),
+    onSuccess: () => {
+      toast.success('Driver can receive rides again');
+      setReleaseTarget(null);
+      queryClient.invalidateQueries({ queryKey: ['admin', 'location-integrity-events'] });
+    },
+    onError: () => toast.error('Could not put the driver back online'),
+  });
+
+  const open = (m: Modal) => {
+    if (!policy) return;
+    setForm({ ...policy });
+    setModal(m);
   };
-
-  const handleUnblock = (id: string) => {
-    setFlaggedDevices((prev) => prev.filter((d) => d.id !== id));
-    setPendingWhitelistDevice(null);
-    toast.success(`Device ${id} unblocked and whitelisted`);
-  };
+  const set = <K extends keyof FraudPolicy>(k: K, v: FraudPolicy[K]) => setForm((f) => (f ? { ...f, [k]: v } : f));
+  const num = (k: 'maxSpeedKmh' | 'flagsBeforeOffline' | 'flagWindowMinutes' | 'offlineMinutes') => (e: React.ChangeEvent<HTMLInputElement>) =>
+    set(k, Number(e.target.value));
+  const list = events.data?.events ?? [];
 
   return (
     <Page>
-      <PageHeader
-        title="Settings"
-        description="Device, location and abuse protections."
-        badge={isEditing ? <StatusPill tone="brand" dot>Editing</StatusPill> : undefined}
-        actions={
-          isEditing ? (
-            <>
-              <AppButton
-                variant="tertiary"
-                label="Cancel"
-                onPress={() => {
-                  setRequireUniqueDevice(true);
-                  setBlockEmulators(true);
-                  setBlockMockGps(true);
-                  setGhostRidingGuard(true);
-                  setMaxAccountsPerDevice('1');
-                  setSameIpRateLimit('120');
-                  setCancellationVelocityThreshold('4');
-                  setIsEditing(false);
-                }}
-              />
-              <AppButton variant="brand" startContent={<FloppyDisk />} label="Save changes" onPress={() => setIsConfirmSaveOpen(true)} />
-            </>
-          ) : (
-            <AppButton variant="tertiary" startContent={<PencilSimple />} label="Edit" isDisabled />
-          )
-        }
-      />
+      <PageHeader title="Anti-fraud" description="Fake-GPS and emulator protection for drivers." />
 
-      <ConfigTabs />
-
-      <DashboardCard className="bg-warning-soft/50">
-        <p className="text-[13px] text-foreground">Anti-fraud rules aren’t stored in the backend yet. These are the intended defaults; editing is disabled until an endpoint exists.</p>
-      </DashboardCard>
-
-      <div className="grid grid-cols-1 gap-5 lg:grid-cols-12">
-        <div className="space-y-5 lg:col-span-7">
-          <DashboardCard>
-            <SectionHeader title="Device & location checks" description="Stop fake devices and spoofed GPS" />
-
-            <div className="mt-6 space-y-5">
-              {[
-                {
-                  label: 'One device per driver',
-                  hint: 'Bind accounts to a hardware ID',
-                  icon: DeviceMobile,
-                  checked: requireUniqueDevice,
-                  onChange: setRequireUniqueDevice,
-                },
-                {
-                  label: 'Block fake GPS',
-                  hint: 'Disconnect drivers using mock locations',
-                  icon: MapPinLine,
-                  checked: blockMockGps,
-                  onChange: setBlockMockGps,
-                },
-                {
-                  label: 'Block emulators',
-                  hint: 'No sign-ins from desktop emulators',
-                  icon: Cpu,
-                  checked: blockEmulators,
-                  onChange: setBlockEmulators,
-                },
-                {
-                  label: 'Ghost-ride detection',
-                  hint: 'Flag trips that move without the rider',
-                  icon: Radioactive,
-                  checked: ghostRidingGuard,
-                  onChange: setGhostRidingGuard,
-                },
-              ].map((row) => (
-                <div key={row.label} className="flex items-center justify-between gap-4">
-                  <div className="flex items-center gap-3">
-                    <span className="grid size-9 shrink-0 place-items-center rounded-xl bg-default text-foreground">
-                      <row.icon size={18} />
-                    </span>
-                    <div>
-                      <p className="text-[14px] font-medium text-foreground">{row.label}</p>
-                      <p className="text-xs text-muted">{row.hint}</p>
-                    </div>
-                  </div>
-                  <Toggle checked={row.checked} onChange={row.onChange} disabled={!isEditing} />
-                </div>
-              ))}
-            </div>
-          </DashboardCard>
-
-          <DashboardCard>
-            <SectionHeader title="Rate limits" description="Slow down referral farming and abuse" />
-
-            <div className="mt-5 grid grid-cols-1 gap-4 sm:grid-cols-3">
-              <AppInput
-                isDisabled={!isEditing}
-                label="Accounts per device"
-                type="number"
-                value={maxAccountsPerDevice}
-                onChange={(e) => setMaxAccountsPerDevice(e.target.value)}
-                description="Recommended: 1"
-              />
-              <AppInput
-                isDisabled={!isEditing}
-                label="Requests per IP"
-                type="number"
-                value={sameIpRateLimit}
-                onChange={(e) => setSameIpRateLimit(e.target.value)}
-                endContent={<span className="text-xs text-muted">/hr</span>}
-              />
-              <AppInput
-                isDisabled={!isEditing}
-                label="Cancels to flag"
-                type="number"
-                value={cancellationVelocityThreshold}
-                onChange={(e) => setCancellationVelocityThreshold(e.target.value)}
-                description="Within 30 minutes"
+      <div className="grid grid-cols-1 items-start gap-5 lg:grid-cols-12">
+        {/* Left: flags */}
+        <DashboardCard className="overflow-hidden p-0 lg:col-span-7">
+          <div className="flex flex-col gap-3 p-6 pb-4 sm:flex-row sm:items-center sm:justify-between">
+            <SectionHeader title="Location flags" description="Newest first" />
+            <div className="w-full sm:w-44">
+              <AppSelect
+                size="sm"
+                aria-label="Flag type"
+                selectedKey={typeFilter}
+                onSelectionChange={(v) => setTypeFilter(v as typeof typeFilter)}
+                options={[
+                  { key: 'ALL', label: 'All flags' },
+                  { key: 'MOCK_LOCATION', label: 'Fake GPS' },
+                  { key: 'TELEPORT', label: 'Unrealistic speed' },
+                  { key: 'AUTO_OFFLINE', label: 'Taken offline' },
+                ]}
               />
             </div>
-          </DashboardCard>
-        </div>
+          </div>
+          <table className="data-table">
+            <thead>
+              <tr>
+                <th>Driver</th>
+                <th>Flag</th>
+                <th>When</th>
+                <th className="w-32" />
+              </tr>
+            </thead>
+            <tbody>
+              {events.isLoading ? (
+                <tr>
+                  <td colSpan={4}>
+                    <div className="h-20 animate-pulse rounded-2xl bg-surface-secondary" />
+                  </td>
+                </tr>
+              ) : list.length === 0 ? (
+                <tr>
+                  <td colSpan={4}>
+                    <EmptyState icon={ShieldCheck} title="No flags" description="Suspicious driver locations will show up here." />
+                  </td>
+                </tr>
+              ) : (
+                list.map((e) => (
+                  <tr key={e.id}>
+                    <td>
+                      <Link href={`/drivers/${e.driverId}`} className="font-medium text-foreground hover:underline">
+                        {e.driverName ?? 'Driver'}
+                      </Link>
+                      {e.tripId && <p className="text-xs text-muted">On a trip</p>}
+                    </td>
+                    <td>
+                      <StatusPill tone={INTEGRITY_LABELS[e.type]?.tone ?? 'neutral'}>{INTEGRITY_LABELS[e.type]?.label ?? e.type}</StatusPill>
+                      <p className="mt-0.5 text-xs text-muted">{integrityDetail(e)}</p>
+                    </td>
+                    <td className="tabular text-muted">{formatDateTime(e.createdAt)}</td>
+                    <td className="text-right">
+                      {e.type === 'AUTO_OFFLINE' ? (
+                        <Can permission="unsuspend_driver">
+                          <AppButton size="sm" variant="tertiary" label="Put back online" onPress={() => setReleaseTarget(e)} />
+                        </Can>
+                      ) : e.latitude != null && e.longitude != null ? (
+                        <a
+                          href={`https://www.google.com/maps?q=${e.latitude},${e.longitude}`}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="text-[12.5px] text-muted hover:text-foreground hover:underline"
+                        >
+                          Map
+                        </a>
+                      ) : null}
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </DashboardCard>
 
-        <div className="space-y-5 self-start lg:sticky lg:top-24 lg:col-span-5">
+        {/* Right: rules */}
+        <div className="space-y-5 lg:col-span-5">
           <DashboardCard>
             <SectionHeader
-              title="Flagged devices"
+              title="Location checks"
               actions={
-                <StatusPill tone={flaggedDevices.length > 0 ? 'danger' : 'success'}>
-                  <span className="tabular">{flaggedDevices.length}</span>
-                </StatusPill>
+                <Can permission="manage_dispatch_config">
+                  <AppButton size="sm" variant="tertiary" label="Edit" isDisabled={!policy} onPress={() => open('checks')} />
+                </Can>
               }
             />
-
-            {flaggedDevices.length === 0 ? (
-              <EmptyState icon={CheckCircle} title="Nothing flagged" className="py-10" />
+            {isLoading || !policy ? (
+              <div className="mt-4 h-28 animate-pulse rounded-2xl bg-surface-secondary" />
             ) : (
-              <ul className="mt-5 space-y-3">
-                {flaggedDevices.map((device) => (
-                  <li key={device.id} className="rounded-2xl bg-surface-secondary p-4">
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="min-w-0">
-                        <div className="flex items-center gap-2">
-                          <span className="truncate text-[14px] font-medium text-foreground">{device.associatedUser}</span>
-                          <StatusPill tone={device.status === 'blocked' ? 'danger' : 'warning'}>
-                            <span className="capitalize">{device.status}</span>
-                          </StatusPill>
-                        </div>
-                        <p className="mt-1 text-[13px] text-muted">{device.reason}</p>
-                        <p className="tabular mt-1 truncate text-xs text-muted">
-                          {device.hardwareFingerprint} · {device.detectedAt}
-                        </p>
-                      </div>
-                      <AppRowActions
-                        items={[
-                          {
-                            key: 'whitelist',
-                            label: 'Whitelist device',
-                            icon: <CheckCircle size={14} />,
-                            onClick: () => setPendingWhitelistDevice(device),
-                          },
-                        ]}
-                      />
-                    </div>
-                  </li>
-                ))}
-              </ul>
+              <Rows
+                rows={[
+                  ['Block fake GPS', onOff(policy.blockMockLocation)],
+                  ['Block unrealistic speed', onOff(policy.teleportGuard)],
+                  ['Fastest believable speed', `${policy.maxSpeedKmh} km/h`],
+                  ['Block emulators', onOff(policy.blockEmulators)],
+                ]}
+              />
             )}
+            <p className="mt-3 text-[12px] text-muted">
+              Speed is distance ÷ time between two updates, so a driver who goes offline and reappears later somewhere else isn’t flagged.
+            </p>
           </DashboardCard>
 
           <DashboardCard>
-            <SectionHeader title="Compliance" />
-            <ul className="mt-4 space-y-3 text-[13px] text-foreground">
-              {['NDPR-compliant device hashing', 'No raw device IDs sent unencrypted', 'OTP challenge on device mismatch'].map(
-                (item) => (
-                  <li key={item} className="flex items-start gap-2.5">
-                    <CheckCircle size={16} weight="fill" className="mt-0.5 shrink-0 text-success" />
-                    <span>{item}</span>
-                  </li>
-                ),
-              )}
-            </ul>
+            <SectionHeader
+              title="Taking drivers offline"
+              actions={
+                <Can permission="manage_dispatch_config">
+                  <AppButton size="sm" variant="tertiary" label="Edit" isDisabled={!policy} onPress={() => open('offline')} />
+                </Can>
+              }
+            />
+            {policy && (
+              <Rows
+                rows={[
+                  ['Flags before offline', String(policy.flagsBeforeOffline)],
+                  ['Counted over', `${policy.flagWindowMinutes} min`],
+                  ['Offline for', `${policy.offlineMinutes} min`],
+                ]}
+              />
+            )}
           </DashboardCard>
         </div>
       </div>
 
-      {/* ── Confirmation Modal: Save Security Rules ────────────────────── */}
-      <Modal>
-        <Modal.Backdrop
-          isOpen={isConfirmSaveOpen}
-          onOpenChange={(open) => !open && setIsConfirmSaveOpen(false)}
-        >
-          <Modal.Container placement="center" size="sm">
-            <Modal.Dialog className="rounded-3xl bg-overlay p-7">
-              <div className="space-y-4">
-                <div className="flex items-center gap-3">
-                  <div>
-                    <h3 className="text-[18px] font-bold tracking-[-0.02em] text-foreground">
-                      Save security settings
-                    </h3>
-                    <p className="mt-1 text-[13px] text-muted">
-                      Applies to all drivers immediately
-                    </p>
-                  </div>
-                </div>
+      <DashboardCard className="overflow-hidden p-0">
+        <SectionHeader className="p-6 pb-4" title="Driver and rider pairs" description="Same pair with stop charges or unpaid fares on 2+ trips in 30 days" />
+        <div className="overflow-x-auto">
+          <table className="data-table">
+            <thead>
+              <tr>
+                <th>Driver</th>
+                <th>Rider</th>
+                <th className="text-right">Trips together</th>
+                <th className="text-right">Stop charges</th>
+                <th className="text-right">Unpaid</th>
+              </tr>
+            </thead>
+            <tbody>
+              {pairs.isLoading ? (
+                <tr>
+                  <td colSpan={5}>
+                    <div className="h-16 animate-pulse rounded-2xl bg-surface-secondary" />
+                  </td>
+                </tr>
+              ) : (pairs.data ?? []).length === 0 ? (
+                <tr>
+                  <td colSpan={5}>
+                    <EmptyState icon={UsersThree} title="Nothing suspicious" description="Pairs that keep running up stop charges or unpaid fares show up here." />
+                  </td>
+                </tr>
+              ) : (
+                (pairs.data ?? []).map((p) => (
+                  <tr key={`${p.driverId}:${p.riderId}`}>
+                    <td>
+                      <Link href={`/drivers/${p.driverId}`} className="font-medium text-foreground hover:underline">
+                        {p.driverName ?? 'Driver'}
+                      </Link>
+                    </td>
+                    <td>
+                      <Link href={`/riders/${p.riderId}`} className="text-foreground hover:underline">
+                        {p.riderName ?? 'Rider'}
+                      </Link>
+                    </td>
+                    <td className="tabular text-right">{p.trips}</td>
+                    <td className="tabular text-right">
+                      {p.stopChargeTrips}
+                      <p className="text-xs text-muted">{naira(p.stopChargeKobo)}</p>
+                    </td>
+                    <td className="tabular text-right">
+                      {p.unpaidTrips > 0 ? <StatusPill tone="danger">{p.unpaidTrips}</StatusPill> : '0'}
+                      {p.unpaidKobo > 0 && <p className="text-xs text-muted">{naira(p.unpaidKobo)}</p>}
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+      </DashboardCard>
 
-                <p className="text-[13px] text-muted">
-                  Device, GPS and rate-limit rules update for every connected driver.
-                </p>
+      <AppModal
+        isOpen={modal !== null}
+        onOpenChange={(o) => !o && setModal(null)}
+        size="sm"
+        title={modal === 'checks' ? 'Location checks' : 'Taking drivers offline'}
+        footer={
+          <>
+            <AppButton variant="tertiary" label="Cancel" onPress={() => setModal(null)} />
+            <AppButton variant="brand" label="Save" isLoading={save.isPending} onPress={() => form && save.mutate(form)} />
+          </>
+        }
+      >
+        {form && modal === 'checks' && (
+          <div className="space-y-3">
+            <div className="grid grid-cols-2 gap-3">
+              <AppSelect label="Block fake GPS" selectedKey={form.blockMockLocation ? 'on' : 'off'} onSelectionChange={(v) => set('blockMockLocation', v === 'on')} options={ON_OFF} />
+              <AppSelect label="Block emulators" selectedKey={form.blockEmulators ? 'on' : 'off'} onSelectionChange={(v) => set('blockEmulators', v === 'on')} options={ON_OFF} />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <AppSelect label="Block unrealistic speed" selectedKey={form.teleportGuard ? 'on' : 'off'} onSelectionChange={(v) => set('teleportGuard', v === 'on')} options={ON_OFF} />
+              <AppInput label="Fastest speed (km/h)" type="number" value={String(form.maxSpeedKmh)} onChange={num('maxSpeedKmh')} />
+            </div>
+          </div>
+        )}
+        {form && modal === 'offline' && (
+          <div className="space-y-3">
+            <div className="grid grid-cols-2 gap-3">
+              <AppInput label="Flags before offline" type="number" value={String(form.flagsBeforeOffline)} onChange={num('flagsBeforeOffline')} />
+              <AppInput label="Counted over (min)" type="number" value={String(form.flagWindowMinutes)} onChange={num('flagWindowMinutes')} />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <AppInput label="Offline for (min)" type="number" value={String(form.offlineMinutes)} onChange={num('offlineMinutes')} />
+            </div>
+          </div>
+        )}
+      </AppModal>
 
-                <div className="flex items-center justify-end gap-3 pt-2">
-                  <AppButton
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => setIsConfirmSaveOpen(false)}
-                  >
-                    Cancel
-                  </AppButton>
-                  <AppButton
-                    variant="primary"
-                    size="sm"
-                    isLoading={isSaving}
-                    onClick={handleSave}
-                  >
-                    Confirm & Save Rules
-                  </AppButton>
-                </div>
-              </div>
-            </Modal.Dialog>
-          </Modal.Container>
-        </Modal.Backdrop>
-      </Modal>
-
-      {/* ── Confirmation Modal: Whitelist Device ───────────────────────── */}
-      <Modal>
-        <Modal.Backdrop
-          isOpen={Boolean(pendingWhitelistDevice)}
-          onOpenChange={(open) => !open && setPendingWhitelistDevice(null)}
-        >
-          <Modal.Container placement="center" size="sm">
-            <Modal.Dialog className="rounded-3xl bg-overlay p-7">
-              <div className="space-y-4">
-                <div className="flex items-center gap-3">
-                  <div>
-                    <h3 className="text-[18px] font-bold tracking-[-0.02em] text-foreground">
-                      Whitelist Quarantined Device
-                    </h3>
-                    <p className="text-xs text-muted tabular">
-                      {pendingWhitelistDevice?.hardwareFingerprint}
-                    </p>
-                  </div>
-                </div>
-
-                <p className="text-[13px] text-muted">
-                  <span className="font-medium text-foreground">{pendingWhitelistDevice?.associatedUser}</span> will be able to sign in from this device again.
-                </p>
-
-                <div className="flex items-center justify-end gap-3 pt-2">
-                  <AppButton
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => setPendingWhitelistDevice(null)}
-                  >
-                    Cancel
-                  </AppButton>
-                  <AppButton
-                    variant="primary"
-                    size="sm"
-                    onClick={() => {
-                      if (pendingWhitelistDevice) {
-                        handleUnblock(pendingWhitelistDevice.id);
-                      }
-                    }}
-                  >
-                    Confirm Whitelist
-                  </AppButton>
-                </div>
-              </div>
-            </Modal.Dialog>
-          </Modal.Container>
-        </Modal.Backdrop>
-      </Modal>
+      <AppModal
+        isOpen={Boolean(releaseTarget)}
+        onOpenChange={(o) => !o && setReleaseTarget(null)}
+        size="sm"
+        title="Put this driver back online?"
+        description={`${releaseTarget?.driverName ?? 'The driver'} can receive rides again straight away.`}
+        footer={
+          <>
+            <AppButton variant="tertiary" label="Cancel" onPress={() => setReleaseTarget(null)} />
+            <AppButton variant="brand" label="Put back online" isLoading={release.isPending} onPress={() => releaseTarget && release.mutate(releaseTarget.driverId)} />
+          </>
+        }
+      />
     </Page>
   );
 }

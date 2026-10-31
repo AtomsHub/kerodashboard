@@ -17,6 +17,7 @@ import {
   XCircle,
   Copy,
   Check,
+  Eye,
   CaretLeft,
   CaretRight,
   Receipt,
@@ -33,9 +34,10 @@ import { AppSelect } from '@/components/ui/app-select';
 import { EmptyState, Page, PageHeader, Segmented, StatusPill, TablePagination } from '@/components/ui/page';
 import { PermissionGuard } from '@/components/auth/can';
 import { api } from '@/lib/api';
+import { gatewayLabel } from '@/lib/payments';
 import { FinanceTransactionsResponse, FinanceTransactionItem } from '@/types/admin';
 
-type ServiceCategory = 'all' | 'fund_account' | 'user_fare_payment' | 'fund_transfer' | 'cash_commission';
+type ServiceCategory = 'all' | 'review' | 'fund_account' | 'user_fare_payment' | 'fund_transfer';
 
 export default function MasterPaymentsPage() {
   const [page, setPage] = useState(1);
@@ -61,7 +63,8 @@ export default function MasterPaymentsPage() {
         page: String(page),
         limit: String(limit),
       });
-      if (category !== 'all') params.set('service', category);
+      if (category === 'review') params.set('needsReview', 'true');
+      else if (category !== 'all') params.set('service', category);
       if (statusFilter !== 'all') params.set('status', statusFilter);
       if (gatewayFilter !== 'all') params.set('gateway', gatewayFilter);
       if (search.trim()) params.set('search', search.trim());
@@ -144,7 +147,8 @@ export default function MasterPaymentsPage() {
     user_fare_payment: 'Ride fare',
     driver_fare_payment: 'Ride fare',
     fund_transfer: 'Driver payout',
-    cash_commission: 'Cash commission',
+    cash_commission: 'Cash commission (old)',
+    unmatched_charge: 'Unmatched payment',
   };
 
   const successRate =
@@ -209,10 +213,10 @@ export default function MasterPaymentsPage() {
               }}
               options={[
                 { key: 'all', label: 'All' },
+                { key: 'review', label: 'Needs review' },
                 { key: 'fund_account', label: 'Top-ups' },
                 { key: 'user_fare_payment', label: 'Fares' },
                 { key: 'fund_transfer', label: 'Payouts' },
-                { key: 'cash_commission', label: 'Cash' },
               ]}
             />
 
@@ -278,20 +282,21 @@ export default function MasterPaymentsPage() {
                   <th>Gateway</th>
                   <th>Status</th>
                   <th>Date</th>
+                  <th className="w-12" />
                 </tr>
               </thead>
               <tbody>
                 {isLoading ? (
                   Array.from({ length: 6 }).map((_, i) => (
                     <tr key={i}>
-                      <td colSpan={8}>
+                      <td colSpan={9}>
                         <div className="h-6 w-full animate-pulse rounded-lg bg-default" />
                       </td>
                     </tr>
                   ))
                 ) : transactions.length === 0 ? (
                   <tr>
-                    <td colSpan={8}>
+                    <td colSpan={9}>
                       <EmptyState icon={Receipt} title="No transactions" description="Try a different filter or search." />
                     </td>
                   </tr>
@@ -300,7 +305,9 @@ export default function MasterPaymentsPage() {
                     <tr key={tx.id}>
                       <td>
                         <div className="flex items-center gap-1.5">
-                          <span className="tabular font-medium text-foreground">{tx.reference.slice(0, 14)}</span>
+                          <Link href={`/finance/payments/${tx.id}`} className="tabular font-medium text-foreground hover:underline" title="Open payment">
+                            …{tx.reference.slice(-12)}
+                          </Link>
                           <button
                             type="button"
                             onClick={() => copyToClipboard(tx.reference)}
@@ -348,9 +355,14 @@ export default function MasterPaymentsPage() {
 
                       <td className="tabular whitespace-nowrap text-right text-muted">{formatNaira(tx.chargesKobo)}</td>
 
-                      <td className="capitalize text-muted">{tx.gateway?.toLowerCase()}</td>
+                      <td className="text-muted">{gatewayLabel(tx.gateway)}</td>
 
-                      <td>{renderStatusBadge(tx.status)}</td>
+                      <td>
+                        <div className="flex flex-wrap items-center gap-1.5" title={tx.reviewReason ?? undefined}>
+                          {renderStatusBadge(tx.status)}
+                          {tx.needsReview && <StatusPill tone="danger">Needs review</StatusPill>}
+                        </div>
+                      </td>
 
                       <td className="tabular whitespace-nowrap text-muted">
                         {new Date(tx.createdAt).toLocaleDateString('en-NG', {
@@ -359,6 +371,16 @@ export default function MasterPaymentsPage() {
                           hour: '2-digit',
                           minute: '2-digit',
                         })}
+                      </td>
+
+                      <td className="text-right">
+                        <Link
+                          href={`/finance/payments/${tx.id}`}
+                          aria-label="View payment"
+                          className="inline-grid size-8 place-items-center rounded-full text-muted hover:bg-default hover:text-foreground"
+                        >
+                          <Eye size={16} />
+                        </Link>
                       </td>
                     </tr>
                   ))

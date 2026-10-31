@@ -9,6 +9,8 @@
 // - Proper flex-based prefix/suffix alignment without overlapping text
 // - Auto password visibility toggle (Eye / EyeSlash) when type="password"
 // - Integrates with React Hook Form / Zod error messages and field states
+// - type="number": shows thousands separators (100,000) while typing; the
+//   value passed to onChange is always the plain number text ("100000")
 // - Built strictly on Kero semantic tokens (bg-field, border-field, text-foreground, etc.)
 
 import React, { cloneElement, forwardRef, isValidElement, useState, type ReactNode } from 'react';
@@ -49,6 +51,17 @@ export interface AppInputProps
 const ICON_SIZE = { sm: 16, md: 18, lg: 20 } as const;
 const GROUP_HEIGHT = { sm: 'h-9 text-xs', md: 'h-11 text-sm', lg: 'h-12 text-[15px]' } as const;
 
+/** "1234567.5" → "1,234,567.5" (display only). */
+export function groupDigits(raw: string): string {
+  const negative = raw.startsWith('-');
+  const [int = '', fraction] = raw.replace(/[^\d.]/g, '').split('.');
+  const grouped = int.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+  return `${negative ? '-' : ''}${grouped}${fraction !== undefined ? `.${fraction}` : ''}`;
+}
+
+/** "1,234.5" → "1234.5" */
+export const ungroupDigits = (shown: string): string => shown.replace(/,/g, '');
+
 function resolveIcon(content: ReactNode, size: number): ReactNode {
   if (!content || !isValidElement(content)) return content ?? null;
   const props = content.props as { size?: number; weight?: string; className?: string };
@@ -85,9 +98,28 @@ export const AppInput = forwardRef<HTMLInputElement, AppInputProps>(function App
   ref,
 ) {
   const [showPassword, setShowPassword] = useState(false);
+  // Numbers are typed as text so they can show separators; the caller only
+  // ever sees the plain number text.
+  // Only controlled fields (value passed in) are formatted; fields the form
+  // fills through the ref keep the browser's own number input.
+  const isNumeric = type === 'number' && value !== undefined;
+  const external = value !== undefined && value !== null ? String(value) : undefined;
+  const [numberText, setNumberText] = useState(() =>
+    groupDigits(external ?? (defaultValue !== undefined ? String(defaultValue) : '')),
+  );
+  const [syncedFrom, setSyncedFrom] = useState(external);
+  if (isNumeric && external !== syncedFrom) {
+    // The value changed from outside (reset, load for Edit): show it, unless
+    // it's the same number the person is in the middle of typing ("1." → 1).
+    setSyncedFrom(external);
+    if (external === undefined || Number(ungroupDigits(numberText)) !== Number(external) || external === '') {
+      setNumberText(groupDigits(external ?? ''));
+    }
+  }
   const invalid = Boolean(errorMessage) || isInvalid;
   const isPassword = type === 'password';
-  const computedType = isPassword ? (showPassword ? 'text' : 'password') : type;
+  const computedType = isPassword ? (showPassword ? 'text' : 'password') : isNumeric ? 'text' : type;
+  const numericProps = isNumeric ? { inputMode: 'decimal' as const } : {};
   const iconSize = ICON_SIZE[size];
   const heightClass = GROUP_HEIGHT[size];
 
@@ -119,9 +151,15 @@ export const AppInput = forwardRef<HTMLInputElement, AppInputProps>(function App
       isRequired={isRequired}
       isDisabled={isDisabled}
       name={name}
-      value={value !== undefined ? String(value) : undefined}
-      defaultValue={defaultValue !== undefined ? String(defaultValue) : undefined}
-      onChange={(val: string) => {
+      value={isNumeric ? numberText : value !== undefined ? String(value) : undefined}
+      defaultValue={!isNumeric && defaultValue !== undefined ? String(defaultValue) : undefined}
+      onChange={(typed: string) => {
+        let val = typed;
+        if (isNumeric) {
+          val = ungroupDigits(typed);
+          if (!/^-?\d*\.?\d*$/.test(val)) return; // ignore letters
+          setNumberText(groupDigits(val));
+        }
         if (onChange) {
           onChange({
             target: { value: val, name: name ?? '' },
@@ -156,6 +194,7 @@ export const AppInput = forwardRef<HTMLInputElement, AppInputProps>(function App
 
           <InputGroup.Input
             {...props}
+            {...numericProps}
             ref={ref}
             id={id}
             name={name}
@@ -177,6 +216,7 @@ export const AppInput = forwardRef<HTMLInputElement, AppInputProps>(function App
       ) : (
         <Input
           {...props}
+          {...numericProps}
           ref={ref}
           id={id}
           name={name}

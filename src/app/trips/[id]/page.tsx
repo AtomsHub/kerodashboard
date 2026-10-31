@@ -1,48 +1,37 @@
 'use client';
 
 // src/app/trips/[id]/page.tsx
-// Phase 2: Trip Telematics, Locked Fare Breakdown, and Dispute Audit
+// One trip: full-width map (route, trails, live positions and where the
+// driver accepted/arrived/started/ended), four stat cards, rider/driver and
+// both reviews, and an Activity list whose rows open in modals.
 import React, { Suspense, useEffect, useState } from 'react';
 import Link from 'next/link';
-import { useParams, useRouter } from 'next/navigation';
+import { useParams } from 'next/navigation';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import {
   Path,
-  CaretLeft,
   ArrowClockwise,
   Prohibit,
   UserCheck,
-  User,
-  Car,
-  MapPin,
-  Clock,
   CurrencyNgn,
-  ShieldCheck,
-  CheckCircle,
-  XCircle,
   Copy,
   Check,
-  Siren,
-  Star,
   Receipt,
-  NavigationArrow,
-  PhoneCall,
-  Calendar,
   Timer,
-  ArrowsClockwise,
   WarningCircle,
   ArrowLeft,
 } from '@phosphor-icons/react';
-import { Card, Chip, Modal, Alert } from '@heroui/react';
+import { Modal, Alert } from '@heroui/react';
 import { AppButton } from '@/components/ui/app-button';
 import { AppInput } from '@/components/ui/app-input';
 import { AppTextarea } from '@/components/ui/app-textarea';
 import { PermissionGuard, Can, usePermission } from '@/components/auth/can';
 import { AppRowActions } from '@/components/ui/app-row-actions';
-import { DashboardCard } from '@/components/ui/dashboard-card';
+import { DashboardCard, StatDashboardCard } from '@/components/ui/dashboard-card';
 import { TripRecord, type TripCheckpoint, type TripSosRecord } from '@/components/trips/trip-record';
+import { TripDetailsList, TripReviewsCard } from '@/components/trips/trip-activity';
 import { UserAvatar } from '@/components/ui/user-avatar';
 import { EmptyState, Page, PageHeader, SectionHeader, StatusPill } from '@/components/ui/page';
 import { api } from '@/lib/api';
@@ -71,7 +60,6 @@ interface TripTracking {
 function TripDetailContent() {
   const params = useParams();
   const tripId = params.id as string;
-  const router = useRouter();
   const queryClient = useQueryClient();
   const canCancel = usePermission('force_cancel_trip');
 
@@ -313,68 +301,57 @@ function TripDetailContent() {
         }
       />
 
-      <DashboardCard>
-        <div className="flex flex-col gap-5 lg:flex-row">
-          <div className="relative h-[360px] flex-1 overflow-hidden rounded-2xl bg-surface-secondary lg:h-[420px]">
-            <TripMap
-              start={{ lat: trip.startLat, lng: trip.startLng }}
-              end={{ lat: trip.endLat, lng: trip.endLng }}
-              polyline={tracking?.trip.polyline ?? trip.polyline}
-              driverTrail={tracking?.driverTrail ?? []}
-              riderTrail={tracking?.riderTrail ?? []}
-              driverLocation={liveDriver}
-              riderLocation={liveRider}
-              follow={Boolean(isActive && liveDriver)}
-            />
+      {/* Four in a row */}
+      <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 xl:grid-cols-4">
+        <StatDashboardCard icon={CurrencyNgn} variant="wallet" label="Fare" value={formatNaira(trip.grandTotalKobo ?? trip.fareKobo)} hint={`Driver gets ${formatNaira(trip.driverEarningsKobo)}`} />
+        <StatDashboardCard icon={Path} label="Distance" value={trip.distanceKm ? `${Number(trip.distanceKm).toFixed(1)} km` : '—'} hint={`Requested ${time(trip.createdAt)}`} />
+        <StatDashboardCard icon={Timer} label="Duration" value={tripDuration(trip)} hint={startEndText(trip.startTime, trip.endTime)} />
+        <StatDashboardCard icon={Receipt} label="Payment" value="Kero wallet" hint={trip.status === 'COMPLETED' ? 'Charged at drop-off' : 'Held at booking'} />
+      </div>
 
-            <div className="pointer-events-none absolute bottom-4 left-4 z-[500] flex max-w-[80%] flex-col gap-2">
-              <div className="rounded-2xl bg-surface px-3.5 py-2">
-                <div className="flex items-center gap-1.5 text-xs text-muted">
-                  <span className="size-1.5 rounded-full bg-success" /> Pickup
-                </div>
-                <div className="truncate text-[13px] font-medium text-foreground">{trip.startAddress}</div>
+      {/* Full-width map with the driver's status points on it */}
+      <DashboardCard className="overflow-hidden p-0">
+        <div className="relative h-[420px] w-full bg-surface-secondary lg:h-[520px]">
+          <TripMap
+            start={{ lat: trip.startLat, lng: trip.startLng }}
+            end={{ lat: trip.endLat, lng: trip.endLng }}
+            polyline={tracking?.trip.polyline ?? trip.polyline}
+            driverTrail={tracking?.driverTrail ?? []}
+            riderTrail={tracking?.riderTrail ?? []}
+            driverLocation={liveDriver}
+            riderLocation={liveRider}
+            follow={Boolean(isActive && liveDriver)}
+            checkpoints={tracking?.checkpoints}
+          />
+
+          <div className="pointer-events-none absolute bottom-4 left-4 z-[500] flex max-w-[80%] flex-col gap-2 sm:max-w-md">
+            <div className="rounded-2xl bg-surface px-3.5 py-2">
+              <div className="flex items-center gap-1.5 text-xs text-muted">
+                <span className="size-1.5 rounded-full bg-success" /> Pickup
               </div>
-              <div className="rounded-2xl bg-surface px-3.5 py-2">
-                <div className="flex items-center gap-1.5 text-xs text-muted">
-                  <span className="size-1.5 rounded-full bg-foreground" /> Drop-off
-                </div>
-                <div className="truncate text-[13px] font-medium text-foreground">{trip.endAddress}</div>
-              </div>
+              <div className="truncate text-[13px] font-medium text-foreground">{trip.startAddress}</div>
             </div>
-
-            {isActive && (
-              <div className="absolute left-4 top-4 z-[500]">
-                <StatusPill tone={liveDriver ? 'success' : 'neutral'} dot pulse={Boolean(liveDriver)} className="bg-surface">
-                  {liveDriver ? `Live · ${lastPingLabel}` : 'Waiting for location'}
-                </StatusPill>
+            <div className="rounded-2xl bg-surface px-3.5 py-2">
+              <div className="flex items-center gap-1.5 text-xs text-muted">
+                <span className="size-1.5 rounded-full bg-foreground" /> Drop-off
               </div>
-            )}
+              <div className="truncate text-[13px] font-medium text-foreground">{trip.endAddress}</div>
+            </div>
           </div>
 
-          <dl className="grid grid-cols-2 gap-x-6 gap-y-5 text-[13px] lg:w-80">
-            {[
-              { label: 'Distance', value: trip.distanceKm ? `${Number(trip.distanceKm).toFixed(1)} km` : '—' },
-              { label: 'Duration', value: trip.durationMinutes ? `${Math.round(Number(trip.durationMinutes))} min` : '—' },
-              { label: 'Payment', value: ((p) => p.charAt(0) + p.slice(1).toLowerCase())(trip.paymentMethod || 'WALLET') },
-              { label: 'Settlement', value: trip.isCashTrip ? 'Cash' : 'Digital' },
-              { label: 'Requested', value: time(trip.createdAt) },
-              { label: 'Started', value: time(trip.startTime) },
-              { label: 'Ended', value: time(trip.endTime) },
-            ].map((row) => (
-              <div key={row.label}>
-                <dt className="text-xs text-muted">{row.label}</dt>
-                <dd className="tabular mt-0.5 font-medium text-foreground">{row.value}</dd>
-              </div>
-            ))}
-          </dl>
+          {isActive && (
+            <div className="absolute left-4 top-4 z-[500]">
+              <StatusPill tone={liveDriver ? 'success' : 'neutral'} dot pulse={Boolean(liveDriver)} className="bg-surface">
+                {liveDriver ? `Live · ${lastPingLabel}` : 'Waiting for location'}
+              </StatusPill>
+            </div>
+          )}
         </div>
       </DashboardCard>
 
-      <TripRecord checkpoints={tracking?.checkpoints} sosAlerts={tracking?.sosAlerts} />
-
-      <div className="grid grid-cols-1 gap-5 lg:grid-cols-12">
+      <div className="grid grid-cols-1 items-start gap-5 lg:grid-cols-12">
         <div className="space-y-5 lg:col-span-7">
-          <div className="grid grid-cols-1 gap-5 sm:grid-cols-2">
+          <div className="grid grid-cols-1 gap-5">
             <DashboardCard>
               <SectionHeader
                 title="Rider"
@@ -425,103 +402,41 @@ function TripDetailContent() {
             </DashboardCard>
           </div>
 
-          {trip.rating && (
-            <DashboardCard>
-              <SectionHeader
-                title="Rider feedback"
-                actions={
-                  <span className="tabular text-[14px] font-bold text-foreground">
-                    ★ {trip.rating.driverRating}
-                    <span className="font-normal text-muted"> / 5</span>
-                  </span>
-                }
-              />
-              {trip.rating.driverComment ? (
-                <p className="mt-4 text-[14px] text-foreground">&ldquo;{trip.rating.driverComment}&rdquo;</p>
-              ) : (
-                <p className="mt-4 text-[13px] text-muted">No written review.</p>
-              )}
-              {trip.rating.driverTags && trip.rating.driverTags.length > 0 && (
-                <div className="mt-4 flex flex-wrap gap-1.5">
-                  {trip.rating.driverTags.map((tag, i) => (
-                    <StatusPill key={i}>{tag}</StatusPill>
-                  ))}
-                </div>
-              )}
-            </DashboardCard>
-          )}
+          <TripReviewsCard tripId={trip.id} />
 
           {trip.status === 'CANCELLED' && (
             <DashboardCard className="bg-danger-soft/40">
               <SectionHeader title="Cancelled" />
               <p className="mt-3 text-[14px] text-foreground">{trip.cancelReason || 'No reason given.'}</p>
-              {trip.cancelledAt && (
-                <p className="tabular mt-1 text-xs text-muted">{new Date(trip.cancelledAt).toLocaleString('en-GB')}</p>
-              )}
+              {trip.cancelledAt && <p className="tabular mt-1 text-xs text-muted">{new Date(trip.cancelledAt).toLocaleString('en-GB')}</p>}
             </DashboardCard>
           )}
         </div>
 
-        <div className="space-y-5 self-start lg:sticky lg:top-24 lg:col-span-5">
-          <DashboardCard>
-            <SectionHeader title="Fare" description="Locked at booking" />
-
-            <dl className="mt-5 space-y-3 text-[13px]">
-              {[
-                { label: 'Base fare', value: formatNaira(trip.baseFareKobo), show: true },
-                {
-                  label: `Distance · ${trip.distanceKm ? Number(trip.distanceKm).toFixed(1) : 0} km`,
-                  value: formatNaira(trip.distanceFareKobo),
-                  show: true,
-                },
-                { label: 'Time', value: formatNaira(trip.timeFareKobo), show: true },
-                {
-                  label: `Surge · ${trip.surgeMultiplier?.toFixed(2)}×`,
-                  value: `+${formatNaira(trip.surgeFareKobo)}`,
-                  show: Boolean(trip.surgeMultiplier && trip.surgeMultiplier > 1),
-                },
-                {
-                  label: 'Waiting',
-                  value: formatNaira(trip.waitTimeFeeKobo),
-                  show: trip.waitTimeFeeKobo !== null && trip.waitTimeFeeKobo > 0,
-                },
-                { label: 'Discount', value: `−${formatNaira(trip.driverDiscountKobo)}`, show: trip.driverDiscountKobo > 0 },
-              ]
-                .filter((row) => row.show)
-                .map((row) => (
-                  <div key={row.label} className="flex justify-between">
-                    <dt className="text-muted">{row.label}</dt>
-                    <dd className="tabular font-medium text-foreground">{row.value}</dd>
-                  </div>
-                ))}
-              <div className="flex items-center justify-between rounded-2xl bg-surface-secondary px-4 py-3">
-                <dt className="font-medium text-foreground">Total</dt>
-                <dd className="tabular text-[18px] font-bold text-foreground">{formatNaira(trip.grandTotalKobo ?? trip.fareKobo)}</dd>
-              </div>
-            </dl>
-
-            <h3 className="mt-6 text-[13px] font-medium text-foreground">Split</h3>
-            <dl className="mt-3 space-y-3 text-[13px]">
-              <div className="flex justify-between">
-                <dt className="text-muted">Lagos road tax</dt>
-                <dd className="tabular text-foreground">{formatNaira(trip.lagosCommissionKobo)}</dd>
-              </div>
-              <div className="flex justify-between">
-                <dt className="text-muted">Kero commission</dt>
-                <dd className="tabular text-foreground">{formatNaira(trip.keroCommissionKobo)}</dd>
-              </div>
-              <div className="flex justify-between">
-                <dt className="text-muted">Driver earnings</dt>
-                <dd className="tabular font-medium text-foreground">{formatNaira(trip.driverEarningsKobo)}</dd>
-              </div>
-              {trip.isCashTrip && trip.actualCashCollectedKobo !== null && (
-                <div className="flex justify-between">
-                  <dt className="text-muted">Cash collected</dt>
-                  <dd className="tabular font-medium text-foreground">{formatNaira(trip.actualCashCollectedKobo)}</dd>
-                </div>
-              )}
-            </dl>
-          </DashboardCard>
+        <div className="lg:col-span-5">
+          <TripDetailsList
+            tripId={trip.id}
+            extraRows={[
+              {
+                key: 'fare',
+                label: 'Fare breakdown',
+                summary: `${formatNaira(trip.grandTotalKobo ?? trip.fareKobo)} · Kero ${formatNaira(trip.keroCommissionKobo)}`,
+                title: 'Fare',
+                content: <FareBreakdown trip={trip} formatNaira={formatNaira} />,
+              },
+              ...(tracking?.checkpoints
+                ? [
+                    {
+                      key: 'record',
+                      label: 'Trip record',
+                      summary: `${tracking.checkpoints.filter((c) => c.at).length} steps recorded${tracking.sosAlerts?.length ? ` · ${tracking.sosAlerts.length} SOS` : ''}`,
+                      title: 'Trip record',
+                      content: <TripRecord bare checkpoints={tracking.checkpoints} sosAlerts={tracking.sosAlerts} />,
+                    },
+                  ]
+                : []),
+            ]}
+          />
         </div>
       </div>
 
@@ -712,4 +627,72 @@ export default function TripDetailPage() {
         </Suspense>
     </PermissionGuard>
   );
+}
+
+/** Fare lines and the split, shown in the Activity "Fare breakdown" modal. */
+function FareBreakdown({ trip, formatNaira }: { trip: AdminTripDetail; formatNaira: (k: number | null | undefined) => string }) {
+  const lines = [
+    { label: 'Base fare', value: formatNaira(trip.baseFareKobo), show: true },
+    { label: `Distance · ${trip.distanceKm ? Number(trip.distanceKm).toFixed(1) : 0} km`, value: formatNaira(trip.distanceFareKobo), show: true },
+    { label: 'Time', value: formatNaira(trip.timeFareKobo), show: true },
+    { label: `Surge · ${trip.surgeMultiplier?.toFixed(2)}×`, value: `+${formatNaira(trip.surgeFareKobo)}`, show: Boolean(trip.surgeMultiplier && trip.surgeMultiplier > 1) },
+    { label: 'Stop charge', value: formatNaira(trip.waitTimeFeeKobo), show: trip.waitTimeFeeKobo !== null && trip.waitTimeFeeKobo > 0 },
+    { label: 'Discount', value: `−${formatNaira(trip.driverDiscountKobo)}`, show: trip.driverDiscountKobo > 0 },
+  ].filter((l) => l.show);
+  const split = [
+    { label: 'Lagos road tax', value: formatNaira(trip.lagosCommissionKobo) },
+    { label: 'Kero commission', value: formatNaira(trip.keroCommissionKobo) },
+    { label: 'Driver earnings', value: formatNaira(trip.driverEarningsKobo) },
+  ];
+  return (
+    <div className="space-y-5 text-[13px]">
+      <dl className="space-y-3">
+        {lines.map((l) => (
+          <div key={l.label} className="flex justify-between">
+            <dt className="text-muted">{l.label}</dt>
+            <dd className="tabular font-medium text-foreground">{l.value}</dd>
+          </div>
+        ))}
+        <div className="flex items-center justify-between rounded-2xl bg-surface-secondary px-4 py-3">
+          <dt className="font-medium text-foreground">Total</dt>
+          <dd className="tabular text-[18px] font-bold text-foreground">{formatNaira(trip.grandTotalKobo ?? trip.fareKobo)}</dd>
+        </div>
+      </dl>
+      <div>
+        <h3 className="font-medium text-foreground">Split</h3>
+        <dl className="mt-3 space-y-3">
+          {split.map((l) => (
+            <div key={l.label} className="flex justify-between">
+              <dt className="text-muted">{l.label}</dt>
+              <dd className="tabular text-foreground">{l.value}</dd>
+            </div>
+          ))}
+        </dl>
+      </div>
+    </div>
+  );
+}
+
+const MINUTE = 60_000;
+
+/** Real time from start to drop-off (falls back to the route estimate). */
+function tripDuration(trip: AdminTripDetail): string {
+  if (trip.startTime && trip.endTime) {
+    const minutes = Math.max(1, Math.round((new Date(trip.endTime).getTime() - new Date(trip.startTime).getTime()) / MINUTE));
+    if (minutes < 60) return `${minutes} min`;
+    if (minutes < 24 * 60) return `${Math.floor(minutes / 60)}h ${minutes % 60}m`;
+    return `${Math.floor(minutes / 1440)}d ${Math.floor((minutes % 1440) / 60)}h`;
+  }
+  return trip.durationMinutes ? `~${Math.round(Number(trip.durationMinutes))} min` : '—';
+}
+
+/** "08:24 PM – 08:27 PM", with dates when the trip spans days. */
+function startEndText(start?: string | Date | null, end?: string | Date | null): string {
+  if (!start) return 'Not started';
+  const a = new Date(start);
+  const t = (d: Date) => d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  const dt = (d: Date) => `${d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}, ${t(d)}`;
+  if (!end) return `Started ${t(a)}`;
+  const b = new Date(end);
+  return a.toDateString() === b.toDateString() ? `${t(a)} – ${t(b)}` : `${dt(a)} – ${dt(b)}`;
 }

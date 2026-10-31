@@ -66,8 +66,8 @@ const PERIOD_LABEL: Record<Period, string> = {
 
 const METHODS = [
   { key: 'WALLET', label: 'Wallet', color: 'var(--chart-1)' },
-  { key: 'CASH', label: 'Cash', color: 'var(--chart-2)' },
-  { key: 'CARD', label: 'Card', color: 'var(--chart-3)' },
+  // Kero is cashless; cash appears only for trips before the switch.
+  { key: 'CASH', label: 'Cash (old trips)', color: 'var(--chart-2)' },
 ];
 
 const naira = (kobo: number | null | undefined) =>
@@ -341,7 +341,7 @@ export default function FinanceOverviewPage() {
                 { label: 'Rider wallets', value: naira(metrics?.riderWalletHoldingsKobo) },
                 { label: 'Driver wallets', value: naira(metrics?.driverWalletHoldingsKobo) },
                 { label: 'Lagos road fund', value: naira(metrics?.lagosWalletBalanceKobo) },
-                { label: 'Cash commission owed', value: naira(metrics?.driverOutstandingDebtKobo) },
+                { label: 'Owed to Kero by drivers', value: naira(metrics?.driverOutstandingDebtKobo) },
                 { label: 'Money in', value: naira(cashflow?.inflowKobo) },
                 { label: 'Money out', value: naira(cashflow?.outflowKobo) },
               ]}

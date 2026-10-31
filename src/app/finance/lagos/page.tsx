@@ -1,10 +1,9 @@
 'use client';
 
 // src/app/finance/lagos/page.tsx
-// Lagos State Road Tax & Statutory Revenue Ledger.
-// Displays all trip money / commissions collected for Lagos State (₦50 statutory road tax per trip),
-// custodial escrow balances, and ministerial treasury remittances.
-// Strictly paginated with safe fetch limits to avoid memory bloat.
+// Lagos road tax: balance, ledger and settlement accounts (read-only for
+// everyone with access). Remitting needs "Request withdrawal"; adding or
+// removing an account needs "Manage settlement account".
 
 import React, { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
@@ -24,6 +23,7 @@ import {
   Path,
   LockKey,
   ArrowLeft,
+  Plus,
 } from '@phosphor-icons/react';
 import Link from 'next/link';
 import { Chip, Modal, Alert, Skeleton } from '@heroui/react';
@@ -33,10 +33,11 @@ import { AppTextarea } from '@/components/ui/app-textarea';
 import { AppSelect } from '@/components/ui/app-select';
 import { AppRowActions } from '@/components/ui/app-row-actions';
 import { DashboardCard, StatDashboardCard } from '@/components/ui/dashboard-card';
-import { EmptyState, Page, PageHeader, SectionHeader, StatusPill, TablePagination } from '@/components/ui/page';
+import { EmptyState, Page, PageHeader, Segmented, StatusPill, TablePagination } from '@/components/ui/page';
 import { PermissionGuard, Can } from '@/components/auth/can';
 import { api } from '@/lib/api';
 import { applyApiFormError } from '@/lib/errors';
+import { LagosAccountsTable, LagosAddAccountModal } from '@/components/payments/lagos-accounts-card';
 import { formatKoboToNaira } from '@/lib/utils';
 import {
   LagosWalletResponse,
@@ -54,6 +55,8 @@ const PAGE_SIZE = 15;
 export default function LagosRevenuePage() {
   const queryClient = useQueryClient();
   const [page, setPage] = useState(1);
+  const [tab, setTab] = useState<'ledger' | 'accounts'>('ledger');
+  const [addAccountOpen, setAddAccountOpen] = useState(false);
   const [isWithdrawModalOpen, setIsWithdrawModalOpen] = useState(false);
   const [confirmingWithdrawalId, setConfirmingWithdrawalId] = useState<string | null>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
@@ -118,7 +121,7 @@ export default function LagosRevenuePage() {
   });
 
   // ── Query: Settlement Accounts (for remittance destination) ───────────
-  const { data: accountsData } = useQuery<{ accounts: LagosSettlementAccount[] }>({
+  const { data: accountsData, isLoading: isAccountsLoading } = useQuery<{ accounts: LagosSettlementAccount[] }>({
     queryKey: ['admin', 'lagos', 'accounts'],
     queryFn: async () => {
       const res = await api.get<{
@@ -132,18 +135,16 @@ export default function LagosRevenuePage() {
 
   const transactions = txData?.transactions ?? [];
   const pagination = txData?.pagination ?? { page: 1, limit: PAGE_SIZE, total: 0, pages: 1 };
-  const accounts = accountsData?.accounts ?? [];
+  const allAccounts = accountsData?.accounts ?? [];
+  // Only verified accounts can receive a remittance.
+  const accounts = allAccounts.filter((a) => a.isVerified);
   const balanceKobo = walletData?.balanceKobo ?? 0;
   const totalCollectedKobo = walletData?.totalCollectedKobo ?? 0;
   const pendingKobo = walletData?.pendingWithdrawalsKobo ?? 0;
 
   // ── Form: Request Remittance Withdrawal ─────────────────────────────
   const withdrawForm = useForm<{ amountNaira: number; settlementAccountId: string; notes?: string }>({
-    defaultValues: {
-      amountNaira: 50000,
-      settlementAccountId: accounts[0]?.id || '',
-      notes: 'Monthly statutory road tax remittance to Lagos State Govt',
-    },
+    defaultValues: { amountNaira: 0, settlementAccountId: '', notes: '' },
   });
 
   const withdrawMutation = useMutation({
@@ -156,7 +157,7 @@ export default function LagosRevenuePage() {
         amountKobo: Math.round(payload.amountNaira * 100),
         settlementAccountId: payload.settlementAccountId,
         notes: payload.notes,
-      });
+      }, { silent: true });
       return res.data;
     },
     onSuccess: (data) => {
@@ -204,6 +205,24 @@ export default function LagosRevenuePage() {
     },
   });
 
+  const openWithdraw = () => {
+    // Start with the full balance and the first verified account.
+    withdrawForm.reset({ amountNaira: Math.floor(balanceKobo / 100), settlementAccountId: accounts[0]?.id ?? '', notes: '' });
+    setWithdrawAlert(null);
+    setIsWithdrawModalOpen(true);
+  };
+
+  /** Plain-language checks before asking the server. */
+  const submitWithdraw = (values: { amountNaira: number; settlementAccountId: string; notes?: string }) => {
+    const amountKobo = Math.round((values.amountNaira || 0) * 100);
+    const settlementAccountId = values.settlementAccountId || accounts[0]?.id || '';
+    if (!settlementAccountId) return setWithdrawAlert('Add and verify a Lagos State account first.');
+    if (amountKobo <= 0) return setWithdrawAlert('Enter the amount to remit.');
+    if (amountKobo > balanceKobo) return setWithdrawAlert(`Only ${formatKoboToNaira(balanceKobo)} is available. Enter that amount or less.`);
+    setWithdrawAlert(null);
+    withdrawMutation.mutate({ ...values, settlementAccountId });
+  };
+
   const handleRefresh = () => {
     refetchWallet();
     refetchTx();
@@ -230,11 +249,14 @@ export default function LagosRevenuePage() {
                 isDisabled={isWalletFetching || isTxFetching}
                 startContent={<ArrowClockwise className={isWalletFetching || isTxFetching ? 'animate-spin' : ''} />}
               />
+              <Can permission="lagos_manage_settlement_account">
+                <AppButton variant="tertiary" startContent={<Plus />} label="Add account" onPress={() => setAddAccountOpen(true)} />
+              </Can>
               <Can permission="lagos_request_withdrawal">
                 <AppButton
                   variant="brand"
-                  onPress={() => setIsWithdrawModalOpen(true)}
-                  isDisabled={balanceKobo < 100000}
+                  onPress={openWithdraw}
+                  isDisabled={balanceKobo <= 0}
                   startContent={<PaperPlaneTilt />}
                   label="Remit"
                 />
@@ -269,9 +291,26 @@ export default function LagosRevenuePage() {
           <StatDashboardCard label="Levy per trip" value="₦50.00" icon={Receipt} hint="Flat statutory fee" />
         </div>
 
-        <DashboardCard className="overflow-hidden p-0">
-          <SectionHeader className="p-6 pb-4" title="Ledger" description="Road tax collected and remitted" />
+        <LagosAddAccountModal isOpen={addAccountOpen} onOpenChange={setAddAccountOpen} />
 
+        <DashboardCard className="overflow-hidden p-0">
+          <div className="p-6 pb-4">
+            <Segmented
+              size="sm"
+              aria-label="Lagos"
+              value={tab}
+              onChange={setTab}
+              options={[
+                { key: 'ledger', label: 'Ledger', count: pagination.total },
+                { key: 'accounts', label: 'Settlement accounts', count: allAccounts.length },
+              ]}
+            />
+          </div>
+
+          {tab === 'accounts' ? (
+            <LagosAccountsTable accounts={allAccounts} isLoading={isAccountsLoading} />
+          ) : (
+          <>
           <div className="overflow-x-auto">
             <table className="data-table">
               <thead>
@@ -384,6 +423,8 @@ export default function LagosRevenuePage() {
             summary={`${pagination.total} entries`}
             onChange={setPage}
           />
+          </>
+          )}
         </DashboardCard>
 
         {/* Modal: Request Remittance Withdrawal */}
@@ -402,10 +443,8 @@ export default function LagosRevenuePage() {
                     <PaperPlaneTilt size={20} weight="duotone" />
                   </div>
                   <div>
-                    <h3 className="text-[18px] font-bold tracking-[-0.02em] text-foreground">Remit to State Treasury</h3>
-                    <p className="mt-1 text-[13px] text-muted">
-                      Initiate disbursement to verified ministerial bank account.
-                    </p>
+                    <h3 className="text-[18px] font-bold tracking-[-0.02em] text-foreground">Remit to Lagos State</h3>
+                    <p className="mt-1 text-[13px] text-muted">A code is emailed before the money is sent.</p>
                   </div>
                 </div>
 
@@ -419,27 +458,23 @@ export default function LagosRevenuePage() {
                 )}
 
                 <form
-                  onSubmit={withdrawForm.handleSubmit((values) =>
-                    withdrawMutation.mutate(values),
-                  )}
+                  onSubmit={withdrawForm.handleSubmit(submitWithdraw)}
                   className="mt-4 space-y-4"
                 >
                   <AppInput
-                    label="Amount to Remit (NGN)"
+                    label="Amount (₦)"
                     type="number"
-                    step="1000"
-                    min="1000"
-                    placeholder="50000"
+                    min="1"
                     value={String(withdrawForm.watch('amountNaira'))}
                     onChange={(e) =>
                       withdrawForm.setValue('amountNaira', Number(e.target.value))
                     }
-                    description={`Available in custody: ${formatKoboToNaira(balanceKobo)}`}
+                    description={`Available: ${formatKoboToNaira(balanceKobo)}`}
                   />
 
                   {accounts.length > 0 ? (
                     <AppSelect
-                      label="Destination Account"
+                      label="Send to"
                       options={accounts.map((acc) => ({
                         key: acc.id,
                         label: `${acc.bankName} - ${acc.accountNumber}`,
@@ -451,12 +486,12 @@ export default function LagosRevenuePage() {
                       }
                     />
                   ) : (
-                    <p className="mt-1 text-[13px] text-muted">No verified bank account available.</p>
+                    <p className="mt-1 text-[13px] text-muted">No verified account yet. Add one under Settlement accounts.</p>
                   )}
 
                   <AppTextarea
-                    label="Internal Audit Note"
-                    placeholder="Reason for remittance..."
+                    label="Note"
+                    placeholder="e.g. October remittance"
                     value={withdrawForm.watch('notes')}
                     onChange={(e) => withdrawForm.setValue('notes', e.target.value)}
                   />
@@ -473,7 +508,7 @@ export default function LagosRevenuePage() {
                       size="sm"
                       type="submit"
                       isLoading={withdrawMutation.isPending}
-                      label="Send Security OTP"
+                      label="Send code"
                     />
                   </div>
                 </form>
@@ -500,10 +535,8 @@ export default function LagosRevenuePage() {
                     <LockKey size={20} weight="duotone" />
                   </div>
                   <div>
-                    <h3 className="text-[18px] font-bold tracking-[-0.02em] text-foreground">Enter 2FA Security OTP</h3>
-                    <p className="mt-1 text-[13px] text-muted">
-                      6-digit security code sent to authorized administrator.
-                    </p>
+                    <h3 className="text-[18px] font-bold tracking-[-0.02em] text-foreground">Enter the code</h3>
+                    <p className="mt-1 text-[13px] text-muted">We emailed a 6-digit code to the Lagos verification email.</p>
                   </div>
                 </div>
 
@@ -523,7 +556,7 @@ export default function LagosRevenuePage() {
                   className="mt-4 space-y-4"
                 >
                   <AppInput
-                    label="6-Digit OTP"
+                    label="Code"
                     placeholder="123456"
                     value={confirmWithdrawOtpForm.watch('otp')}
                     onChange={(e) => confirmWithdrawOtpForm.setValue('otp', e.target.value)}
@@ -541,7 +574,7 @@ export default function LagosRevenuePage() {
                       size="sm"
                       type="submit"
                       isLoading={confirmWithdrawOtpMutation.isPending}
-                      label="Confirm & Disburse"
+                      label="Confirm and send"
                     />
                   </div>
                 </form>

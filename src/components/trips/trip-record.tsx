@@ -5,7 +5,8 @@
 // step (live trails expire) and every SOS raised on the trip by either party.
 
 import React from 'react';
-import { ArrowSquareOut, Siren } from '@phosphor-icons/react';
+import { Siren } from '@phosphor-icons/react';
+import { PlaceName } from '@/components/ui/place-name';
 import { DashboardCard } from '@/components/ui/dashboard-card';
 import { SectionHeader, StatusPill } from '@/components/ui/page';
 
@@ -33,25 +34,22 @@ const time = (v?: string | null) =>
   v ? new Date(v).toLocaleString('en-NG', { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' }) : null;
 
 function MapLink({ location }: { location: { lat: number; lng: number } }) {
-  return (
-    <a
-      href={`https://www.google.com/maps?q=${location.lat},${location.lng}`}
-      target="_blank"
-      rel="noreferrer"
-      className="tabular inline-flex items-center gap-1 text-[12px] text-muted hover:text-foreground"
-    >
-      {location.lat.toFixed(5)}, {location.lng.toFixed(5)}
-      <ArrowSquareOut size={11} />
-    </a>
-  );
+  return <PlaceName lat={location.lat} lng={location.lng} showIcon={false} className="text-[12px]" />;
 }
 
-export function TripRecord({ checkpoints, sosAlerts }: { checkpoints?: TripCheckpoint[]; sosAlerts?: TripSosRecord[] }) {
+export function TripRecord({
+  checkpoints,
+  sosAlerts,
+  bare = false,
+}: {
+  checkpoints?: TripCheckpoint[];
+  sosAlerts?: TripSosRecord[];
+  /** Without the card (inside a modal). */
+  bare?: boolean;
+}) {
   if (!checkpoints) return null;
-  return (
-    <DashboardCard>
-      <SectionHeader title="Trip record" description="Kept permanently for investigations" />
-      <div className="mt-5 grid grid-cols-1 gap-6 xl:grid-cols-2">
+  const body = (
+      <div className={`${bare ? "" : "mt-5 "}grid grid-cols-1 gap-6 xl:grid-cols-2`}>
         <ol className="space-y-4">
           {checkpoints.map((c) => (
             <li key={c.key} className="flex items-start gap-3">
@@ -104,6 +102,12 @@ export function TripRecord({ checkpoints, sosAlerts }: { checkpoints?: TripCheck
           )}
         </div>
       </div>
+  );
+  if (bare) return body;
+  return (
+    <DashboardCard>
+      <SectionHeader title="Trip record" description="Kept permanently for investigations" />
+      {body}
     </DashboardCard>
   );
 }
